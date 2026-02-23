@@ -15,6 +15,7 @@ import tools
 from networks import Projector
 from optim import LaProp, clip_grad_agc_
 from tools import to_f32
+from multimodal_encoder import MultimodalEncoder, MultimodalEncoderConfig
 
 
 class Dreamer(nn.Module):
@@ -32,7 +33,30 @@ class Dreamer(nn.Module):
 
         # World model components
         shapes = {k: tuple(v.shape) for k, v in obs_space.spaces.items()}
-        self.encoder = networks.MultiEncoder(config.encoder, shapes)
+        self.use_multimodal_encoder = bool(config.use_multimodal_encoder)
+        if self.use_multimodal_encoder:
+            mm_cfg = config.multimodal_encoder
+            self._mm_config = MultimodalEncoderConfig(
+                visual_channels=list(mm_cfg.visual_channels),
+                visual_kernel_size=int(mm_cfg.visual_kernel_size),
+                visual_stride=int(mm_cfg.visual_stride),
+                image_size=int(mm_cfg.image_size),
+                text_encoder_name=str(mm_cfg.text_encoder_name),
+                max_text_length=int(mm_cfg.max_text_length),
+                d_model=int(mm_cfg.d_model),
+                num_heads=int(mm_cfg.num_heads),
+                num_layers=int(mm_cfg.num_layers),
+                num_queries=int(mm_cfg.num_queries),
+                ffn_dim=int(mm_cfg.ffn_dim),
+                dropout=float(mm_cfg.dropout),
+                aggregation_method=str(mm_cfg.aggregation_method),
+                latent_dim=int(mm_cfg.latent_dim),
+                qformer_lr_warmup_steps=int(mm_cfg.qformer_lr_warmup_steps),
+                qformer_lr_scale=float(mm_cfg.qformer_lr_scale),
+            )
+            self.encoder = MultimodalEncoder(self._mm_config)
+        else:
+            self.encoder = networks.MultiEncoder(config.encoder, shapes)
         self.embed_size = self.encoder.out_dim
         self.rssm = rssm.RSSM(
             config.rssm,
@@ -134,7 +158,8 @@ class Dreamer(nn.Module):
                 self._named_params[name] = module
             else:
                 for param_name, param in module.named_parameters():
-                    self._named_params[f"{name}.{param_name}"] = param
+                    if param.requires_grad:
+                        self._named_params[f"{name}.{param_name}"] = param
         print(f"Optimizer has: {sum(p.numel() for p in self._named_params.values())} parameters.")
 
         def _agc(params):
@@ -162,6 +187,14 @@ class Dreamer(nn.Module):
             print("Compiling update function with torch.compile...")
             self._cal_grad = torch.compile(self._cal_grad, mode="reduce-overhead")
 
+    def set_task_text(self, task_text):
+        """Set task description for the multimodal encoder. No-op if not using it."""
+        if self.use_multimodal_encoder:
+            self.encoder.set_task_text(task_text)
+            # Also set on the frozen copy
+            if hasattr(self, '_frozen_encoder'):
+                self._frozen_encoder.set_task_text(task_text)
+
     def _update_slow_target(self):
         """Update slow-moving value target network."""
         if self._slow_value_updates % self.slow_target_update == 0:
@@ -175,18 +208,38 @@ class Dreamer(nn.Module):
         super().train(mode)
         # slow_value should be always eval mode
         self._slow_value.train(False)
+        # Keep the frozen CLIP text model in eval mode
+        if self.use_multimodal_encoder:
+            self.encoder.text_encoder._text_model.eval()
         return self
 
     def clone_and_freeze(self):
         # NOTE: "requires_grad" affects whether a parameter is updated
         # not whether gradients flow through its operations
-        self._frozen_encoder = copy.deepcopy(self.encoder)
-        for (name_orig, param_orig), (name_new, param_new) in zip(
-            self.encoder.named_parameters(), self._frozen_encoder.named_parameters()
-        ):
-            assert name_orig == name_new
-            param_new.data = param_orig.data
-            param_new.requires_grad_(False)
+        if self.use_multimodal_encoder:
+            # Create a fresh frozen copy. CLIP model is shared via module-level cache
+            # in TextEncoder, so this doesn't reload it.
+            self._frozen_encoder = MultimodalEncoder(self._mm_config)
+            # Share CLIP output cache for efficiency
+            self._frozen_encoder.text_encoder._clip_cache = self.encoder.text_encoder._clip_cache
+            # Share data pointers for all parameters (CLIP params are already shared)
+            for (name_orig, param_orig), (name_new, param_new) in zip(
+                self.encoder.named_parameters(), self._frozen_encoder.named_parameters()
+            ):
+                assert name_orig == name_new
+                param_new.data = param_orig.data
+                param_new.requires_grad_(False)
+            # Copy task text
+            if self.encoder._task_text is not None:
+                self._frozen_encoder.set_task_text(self.encoder._task_text)
+        else:
+            self._frozen_encoder = copy.deepcopy(self.encoder)
+            for (name_orig, param_orig), (name_new, param_new) in zip(
+                self.encoder.named_parameters(), self._frozen_encoder.named_parameters()
+            ):
+                assert name_orig == name_new
+                param_new.data = param_orig.data
+                param_new.requires_grad_(False)
 
         self._frozen_rssm = copy.deepcopy(self.rssm)
         for (name_orig, param_orig), (name_new, param_new) in zip(

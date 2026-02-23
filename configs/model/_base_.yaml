@@ -7,6 +7,30 @@ compile: True
 log_grads: False
 device: ${device}
 rep_loss: "r2dreamer" # r2dreamer/dreamer/infonce/dreamerpro
+use_multimodal_encoder: True  # Enable Q-Former multimodal encoder
+
+multimodal_encoder:
+  # Visual Encoder (CNN)
+  visual_channels: [32, 64, 128, 256]
+  visual_kernel_size: 4
+  visual_stride: 2
+  image_size: 64
+  # Text Encoder
+  text_encoder_name: "openai/clip-vit-base-patch32"
+  max_text_length: 77
+  # Q-Former (lean config for 1M step budget)
+  d_model: 128
+  num_heads: 4
+  num_layers: 2
+  num_queries: 4
+  ffn_dim: 256
+  dropout: 0.0
+  # Aggregation
+  aggregation_method: "attention_pool"
+  latent_dim: 512
+  # Training
+  qformer_lr_warmup_steps: 5000
+  qformer_lr_scale: 1.0
 
 lr: 4e-5
 agc: 0.3
