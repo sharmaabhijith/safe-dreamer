@@ -70,6 +70,62 @@ class ParallelEnv:
         done = torch.as_tensor(new_d, device="cpu")
         return self.lift_dim(td), done
 
+class SerialEnv:
+    """Simpler in-process vectorized env without multiprocessing.
+
+    Keeps the same public API as ParallelEnv (env_num, step, observation_space,
+    action_space) so it can be used as a drop-in replacement where multiprocessing
+    causes issues.
+    """
+
+    def __init__(self, constructor, env_num, device):
+        # Directly construct env instances in the current process.
+        self.envs = [constructor(i)() for i in range(env_num)]
+        self.device = device
+
+    @property
+    def observation_space(self):
+        return self.envs[0].observation_space
+
+    @property
+    def action_space(self):
+        return self.envs[0].action_space
+
+    @property
+    def env_num(self):
+        return len(self.envs)
+
+    def lift_dim(self, td):
+        for key in td.keys():
+            if td[key].ndim == 1:
+                td[key] = td[key].unsqueeze(-1)
+        return td
+
+    def step(self, action, done):
+        """Step all environments synchronously in-process.
+
+        Mirrors the TensorDict structure and CPU-pinned behavior of ParallelEnv.step
+        so that the trainer can remain unchanged.
+        """
+        new_o, new_r, new_d = [], [], []
+        for env, a, d in zip(self.envs, tools.to_np(action), done):
+            if d:
+                o = env.reset()
+                new_o.append(o)
+                new_r.append(0.0)
+                new_d.append(False)
+            else:
+                o, r, d, _ = env.step(a)
+                new_o.append(o)
+                new_r.append(r)
+                new_d.append(d)
+        obs_stacked = {k: np.stack([o[k] for o in new_o]) for k in new_o[0].keys()}
+        obs_tensors = {k: torch.as_tensor(v, device="cpu") for k, v in obs_stacked.items()}
+        rew_stacked = torch.as_tensor(new_r, dtype=torch.float32, device="cpu")
+        td = TensorDict({**obs_tensors, "reward": rew_stacked}, batch_size=(self.env_num,), device="cpu").pin_memory()
+        done = torch.as_tensor(new_d, device="cpu")
+        return self.lift_dim(td), done
+
 
 class Parallel:
     def __init__(self, constructor, strategy):

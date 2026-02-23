@@ -1,6 +1,7 @@
 import atexit
 import pathlib
 import sys
+import os
 import warnings
 
 import hydra
@@ -17,9 +18,29 @@ sys.path.append(str(pathlib.Path(__file__).parent))
 # torch.backends.cudnn.benchmark = True
 torch.set_float32_matmul_precision("high")
 
+def _setup_gpu(config):
+    """Restrict CUDA and MuJoCo EGL to the same physical GPU.
+
+    Parses the GPU index from config.device (e.g. 'cuda:1'), sets
+    CUDA_VISIBLE_DEVICES to that physical GPU, points MuJoCo EGL at
+    device 0 (the only visible one), and remaps config.device to 'cuda:0'
+    so all downstream code sees a consistent single-GPU view.
+    """
+    from omegaconf import OmegaConf
+
+    device = config.device
+    if device.startswith("cuda"):
+        gpu_id = device.split(":")[-1] if ":" in device else "0"
+        os.environ["CUDA_VISIBLE_DEVICES"] = gpu_id
+        os.environ.setdefault("MUJOCO_GL", "egl")
+        # EGL device IDs are physical — not affected by CUDA_VISIBLE_DEVICES.
+        os.environ["MUJOCO_EGL_DEVICE_ID"] = gpu_id
+        OmegaConf.update(config, "device", "cuda:0")
+
 
 @hydra.main(version_base=None, config_path="configs", config_name="configs")
 def main(config):
+    _setup_gpu(config)
     tools.set_seed_everywhere(config.seed)
     if config.deterministic_run:
         tools.enable_deterministic_run()

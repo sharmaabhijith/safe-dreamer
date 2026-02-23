@@ -5,8 +5,8 @@ def make_envs(config):
     def env_constructor(idx):
         return lambda: make_env(config, idx)
 
-    train_envs = parallel.ParallelEnv(env_constructor, config.env_num, config.device)
-    eval_envs = parallel.ParallelEnv(env_constructor, config.eval_episode_num, config.device)
+    train_envs = parallel.SerialEnv(env_constructor, config.env_num, config.device)
+    eval_envs = parallel.SerialEnv(env_constructor, config.eval_episode_num, config.device)
     obs_space = train_envs.observation_space
     act_space = train_envs.action_space
     return train_envs, eval_envs, obs_space, act_space
