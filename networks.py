@@ -387,6 +387,22 @@ class Projector(nn.Module):
         return self.w(x)
 
 
+class MLPProjector(nn.Module):
+    def __init__(self, in_ch, out_ch):
+        super().__init__()
+        self.fc1 = nn.Linear(in_ch, out_ch, bias=False)
+        self.norm = nn.RMSNorm(out_ch)
+        self.fc2 = nn.Linear(out_ch, out_ch, bias=False)
+        self.apply(weight_init_)
+
+    def forward(self, x):
+        x = self.fc1(x)
+        x = self.norm(x)
+        x = F.silu(x)
+        x = self.fc2(x)
+        return x
+
+
 class ReturnEMA(nn.Module):
     """running mean and std"""
 

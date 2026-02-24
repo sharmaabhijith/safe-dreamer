@@ -16,28 +16,30 @@ class QFormerLayer(nn.Module):
     All use pre-norm (LayerNorm before attention/FFN).
     """
 
-    def __init__(self, d_model, num_heads, ffn_dim, dropout=0.0):
+    def __init__(self, d_model, num_heads, ffn_dim, dropout=0.0, visual_weight=1.0, text_weight=0.5):
         super().__init__()
+        self.visual_weight = visual_weight
+        self.text_weight = text_weight
         # Sub-layer 1: Self-attention among queries
-        self.self_attn_norm = nn.LayerNorm(d_model)
+        self.self_attn_norm = nn.LayerNorm(d_model, dtype=torch.float32)
         self.self_attn = nn.MultiheadAttention(
             d_model, num_heads, dropout=dropout, batch_first=True,
         )
 
         # Sub-layer 2: Cross-attention to visual features
-        self.visual_cross_norm = nn.LayerNorm(d_model)
+        self.visual_cross_norm = nn.LayerNorm(d_model, dtype=torch.float32)
         self.visual_cross_attn = nn.MultiheadAttention(
             d_model, num_heads, dropout=dropout, batch_first=True,
         )
 
         # Sub-layer 3: Cross-attention to text features
-        self.text_cross_norm = nn.LayerNorm(d_model)
+        self.text_cross_norm = nn.LayerNorm(d_model, dtype=torch.float32)
         self.text_cross_attn = nn.MultiheadAttention(
             d_model, num_heads, dropout=dropout, batch_first=True,
         )
 
         # Sub-layer 4: FFN
-        self.ffn_norm = nn.LayerNorm(d_model)
+        self.ffn_norm = nn.LayerNorm(d_model, dtype=torch.float32)
         self.ffn = nn.Sequential(
             nn.Linear(d_model, ffn_dim),
             nn.GELU(),
@@ -59,11 +61,11 @@ class QFormerLayer(nn.Module):
 
         # Visual cross-attention (pre-norm)
         q = self.visual_cross_norm(queries)
-        queries = queries + self.visual_cross_attn(q, visual_features, visual_features, need_weights=False)[0]
+        queries = queries + self.visual_weight * self.visual_cross_attn(q, visual_features, visual_features, need_weights=False)[0]
 
         # Text cross-attention (pre-norm)
         q = self.text_cross_norm(queries)
-        queries = queries + self.text_cross_attn(q, text_features, text_features, need_weights=False)[0]
+        queries = queries + self.text_weight * self.text_cross_attn(q, text_features, text_features, need_weights=False)[0]
 
         # FFN (pre-norm)
         queries = queries + self.ffn(self.ffn_norm(queries))
@@ -87,12 +89,12 @@ class QFormer(nn.Module):
 
         # Stack of Q-Former layers
         self.layers = nn.ModuleList([
-            QFormerLayer(config.d_model, config.num_heads, config.ffn_dim, config.dropout)
+            QFormerLayer(config.d_model, config.num_heads, config.ffn_dim, config.dropout, config.visual_weight, config.text_weight)
             for _ in range(config.num_layers)
         ])
 
         # Final layer norm on query outputs
-        self.output_norm = nn.LayerNorm(config.d_model)
+        self.output_norm = nn.LayerNorm(config.d_model, dtype=torch.float32)
 
     def forward(self, visual_features, text_features):
         """

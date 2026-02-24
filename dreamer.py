@@ -12,7 +12,7 @@ from torch.optim.lr_scheduler import LambdaLR
 import networks
 import rssm
 import tools
-from networks import Projector
+from networks import Projector, MLPProjector
 from optim import LaProp, clip_grad_agc_
 from tools import to_f32
 from multimodal_encoder import MultimodalEncoder, MultimodalEncoderConfig
@@ -51,7 +51,6 @@ class Dreamer(nn.Module):
                 dropout=float(mm_cfg.dropout),
                 aggregation_method=str(mm_cfg.aggregation_method),
                 latent_dim=int(mm_cfg.latent_dim),
-                qformer_lr_warmup_steps=int(mm_cfg.qformer_lr_warmup_steps),
                 qformer_lr_scale=float(mm_cfg.qformer_lr_scale),
             )
             self.encoder = MultimodalEncoder(self._mm_config)
@@ -111,7 +110,10 @@ class Dreamer(nn.Module):
             modules.update({"decoder": self.decoder})
         elif self.rep_loss == "r2dreamer" or self.rep_loss == "infonce":
             # add projector for latent to embedding
-            self.prj = Projector(self.rssm.feat_size, self.embed_size)
+            if self.use_multimodal_encoder:
+                self.prj = MLPProjector(self.rssm.feat_size, self.embed_size)
+            else:
+                self.prj = Projector(self.rssm.feat_size, self.embed_size)
             modules.update({"projector": self.prj})
             self.barlow_lambd = float(config.r2dreamer.lambd)
         elif self.rep_loss == "dreamerpro":
@@ -147,11 +149,39 @@ class Dreamer(nn.Module):
                 "ema_obs_proj": self._ema_obs_proj,
             })
         # count number of parameters in each module
+        total_trainable = 0
+        total_frozen = 0
         for key, module in modules.items():
             if isinstance(module, nn.Parameter):
-                print(f"{module.numel():>14,}: {key}")
+                count = module.numel()
+                trainable = count if module.requires_grad else 0
+                frozen = count - trainable
+                print(f"{count:>14,}: {key} (trainable: {trainable:,}, frozen: {frozen:,})")
+                total_trainable += trainable
+                total_frozen += frozen
             else:
-                print(f"{sum(p.numel() for p in module.parameters()):>14,}: {key}")
+                all_params = sum(p.numel() for p in module.parameters())
+                trainable = sum(p.numel() for p in module.parameters() if p.requires_grad)
+                frozen = all_params - trainable
+                print(f"{all_params:>14,}: {key} (trainable: {trainable:,}, frozen: {frozen:,})")
+                total_trainable += trainable
+                total_frozen += frozen
+
+                # Detailed breakdown for multimodal encoder
+                if key == "encoder" and isinstance(module, MultimodalEncoder):
+                    submodules = {
+                        "visual_encoder (CNN)": module.visual_encoder,
+                        "text_encoder (CLIP)": module.text_encoder,
+                        "qformer": module.qformer,
+                        "aggregation_head": module.aggregation_head,
+                    }
+                    for sub_key, sub_module in submodules.items():
+                        sub_all = sum(p.numel() for p in sub_module.parameters())
+                        sub_train = sum(p.numel() for p in sub_module.parameters() if p.requires_grad)
+                        sub_frozen = sub_all - sub_train
+                        print(f"{'':>14}  └─ {sub_key}: {sub_all:,} (trainable: {sub_train:,}, frozen: {sub_frozen:,})")
+
+        print(f"Total parameters: {total_trainable + total_frozen:,} (trainable: {total_trainable:,}, frozen: {total_frozen:,})")
         self._named_params = OrderedDict()
         for name, module in modules.items():
             if isinstance(module, nn.Parameter):
@@ -160,26 +190,42 @@ class Dreamer(nn.Module):
                 for param_name, param in module.named_parameters():
                     if param.requires_grad:
                         self._named_params[f"{name}.{param_name}"] = param
-        print(f"Optimizer has: {sum(p.numel() for p in self._named_params.values())} parameters.")
+        print(f"Optimizer has: {sum(p.numel() for p in self._named_params.values())} trainable parameters.")
 
         def _agc(params):
             clip_grad_agc_(params, float(config.agc), float(config.pmin), foreach=True)
 
         self._agc = _agc
-        self._optimizer = LaProp(
-            self._named_params.values(),
-            lr=config.lr,
-            betas=(config.beta1, config.beta2),
-            eps=config.eps,
-        )
-        self._scaler = GradScaler()
 
         def lr_lambda(step):
             if config.warmup:
                 return min(1.0, (step + 1) / config.warmup)
             return 1.0
 
-        self._scheduler = LambdaLR(self._optimizer, lr_lambda=lr_lambda)
+        if self.use_multimodal_encoder:
+            qformer_param_ids = {id(p) for p in self.encoder.get_qformer_parameters()}
+            other_params = [p for p in self._named_params.values() if id(p) not in qformer_param_ids]
+            qformer_params = [p for p in self._named_params.values() if id(p) in qformer_param_ids]
+            self._optimizer = LaProp(
+                [
+                    {"params": other_params},
+                    {"params": qformer_params, "lr": config.lr * self._mm_config.qformer_lr_scale},
+                ],
+                lr=config.lr,
+                betas=(config.beta1, config.beta2),
+                eps=config.eps,
+            )
+            self._scheduler = LambdaLR(self._optimizer, lr_lambda=[lr_lambda, lr_lambda])
+        else:
+            self._optimizer = LaProp(
+                self._named_params.values(),
+                lr=config.lr,
+                betas=(config.beta1, config.beta2),
+                eps=config.eps,
+            )
+            self._scheduler = LambdaLR(self._optimizer, lr_lambda=lr_lambda)
+
+        self._scaler = GradScaler()
 
         self.train()
         self.clone_and_freeze()
@@ -387,6 +433,8 @@ class Dreamer(nn.Module):
         self._scheduler.step()  # increment scheduler
         self._optimizer.zero_grad(set_to_none=True)  # reset grads
         mets["opt/lr"] = self._scheduler.get_lr()[0]
+        if self.use_multimodal_encoder:
+            mets["opt/qformer_lr"] = self._scheduler.get_lr()[1]
         mets["opt/grad_scale"] = self._scaler.get_scale()
         if self._log_grads:
             updates = [(new - old) for (new, old) in zip(self._named_params.values(), old_params)]

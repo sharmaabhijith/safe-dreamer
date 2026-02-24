@@ -23,11 +23,12 @@ class MultimodalEncoderConfig:
     num_queries: int = 4
     ffn_dim: int = 256
     dropout: float = 0.0
+    visual_weight: float = 1.0
+    text_weight: float = 0.5
 
     # Aggregation
     aggregation_method: str = "attention_pool"  # "attention_pool" or "mean_pool"
     latent_dim: int = 512  # Must match RSSM embed_size expectation
 
     # Training dynamics
-    qformer_lr_warmup_steps: int = 5000
     qformer_lr_scale: float = 1.0
