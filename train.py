@@ -69,16 +69,13 @@ def main(config):
         act_space,
     ).to(config.device)
 
-    # Set task text for multimodal encoder if enabled
+    # Set task name for multimodal encoder (loads text pool for random sampling)
     if config.model.use_multimodal_encoder:
-        from multimodal_encoder import get_task_description_from_name
-        # Extract the DMC task name (e.g., 'walker_walk' from 'dmc_walker_walk')
         task_name = config.env.task
         if task_name.startswith("dmc_"):
             task_name = task_name[4:]
-        task_text = get_task_description_from_name(task_name)
-        print(f"Task description: {task_text}")
-        agent.set_task_text(task_text)
+        agent.set_task_name(task_name)
+        print(f"Task: {task_name} (100 text descriptions loaded for random sampling)")
 
     policy_trainer = OnlineTrainer(config.trainer, replay_buffer, logger, logdir, train_envs, eval_envs)
     policy_trainer.begin(agent)

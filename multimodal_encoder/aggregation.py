@@ -64,11 +64,43 @@ class MeanPooling(nn.Module):
         return self.mlp(pooled)
 
 
+class Flatten(nn.Module):
+    """Flatten all query outputs. Adds MLP projection only if num_queries * d_model != latent_dim."""
+
+    def __init__(self, num_queries, d_model, latent_dim):
+        super().__init__()
+        flat_dim = num_queries * d_model
+        self.norm = nn.LayerNorm(flat_dim)
+        if flat_dim != latent_dim:
+            self.mlp = nn.Sequential(
+                nn.Linear(flat_dim, latent_dim),
+                nn.SiLU(),
+                nn.Linear(latent_dim, latent_dim),
+            )
+        else:
+            self.mlp = None
+
+    def forward(self, query_outputs):
+        """
+        Args:
+            query_outputs: (B, num_queries, d_model)
+        Returns:
+            (B, latent_dim)
+        """
+        flat = query_outputs.reshape(query_outputs.shape[0], -1)
+        out = self.norm(flat)
+        if self.mlp is not None:
+            out = self.mlp(out)
+        return out
+
+
 def build_aggregation_head(config):
     """Factory function to build the configured aggregation head."""
     if config.aggregation_method == "attention_pool":
         return AttentionPooling(config.d_model, config.num_heads, config.latent_dim)
     elif config.aggregation_method == "mean_pool":
         return MeanPooling(config.d_model, config.latent_dim)
+    elif config.aggregation_method == "flatten":
+        return Flatten(config.num_queries, config.d_model, config.latent_dim)
     else:
         raise ValueError(f"Unknown aggregation method: {config.aggregation_method}")

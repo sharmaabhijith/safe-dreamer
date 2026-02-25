@@ -2,7 +2,7 @@
 
 Designed as a drop-in replacement for the existing MultiEncoder in the R2-Dreamer pipeline.
 The forward interface matches MultiEncoder: takes obs dict (B, T, *) -> returns (B, T, E).
-Text descriptions are set once per episode via set_task_text() and cached.
+Task texts are randomly sampled from a pool each forward pass during training.
 """
 
 import torch
@@ -12,6 +12,7 @@ import torch.nn.init as init
 from .aggregation import build_aggregation_head
 from .config import MultimodalEncoderConfig
 from .qformer import QFormer
+from .task_descriptions import get_task_texts, sample_task_text
 from .text_encoder import TextEncoder
 
 
@@ -65,7 +66,8 @@ class MultimodalEncoder(nn.Module):
     """Complete multimodal encoder: CNN + CLIP text + Q-Former + aggregation.
 
     Provides the same interface as MultiEncoder: forward(obs) -> (B, T, E).
-    Task text is set via set_task_text() before forward passes.
+    Task name is set via set_task_name(); during training each forward pass
+    randomly samples a different text description from the pool of ~100.
     """
 
     def __init__(self, config: MultimodalEncoderConfig):
@@ -79,10 +81,12 @@ class MultimodalEncoder(nn.Module):
         # Output dimension matches what RSSM expects as embed_size
         self.out_dim = config.latent_dim
 
-        # Current task text (set once per episode / at init)
-        self._task_text = None
-        # Cached text features for current task
-        self._cached_text_features = None
+        # Task name (e.g. 'walker_walk') — set once at init
+        self._task_name = None
+        # Full list of text descriptions for this task
+        self._task_texts = None
+        # Fixed text used during eval (first text in pool)
+        self._eval_text = None
 
         # Initialize weights (except text encoder which is pretrained)
         self._init_weights()
@@ -105,26 +109,24 @@ class MultimodalEncoder(nn.Module):
                 init.ones_(module.weight)
                 init.zeros_(module.bias)
 
-    def set_task_text(self, task_text):
-        """Set the task description text. Call once per episode or at init.
+    def set_task_name(self, task_name: str):
+        """Set the task name and load its text pool. Call once at init.
 
         Args:
-            task_text: string describing the task
+            task_name: e.g. 'walker_walk' or 'dmc_walker_walk'
         """
-        if task_text != self._task_text:
-            self._task_text = task_text
-            self._cached_text_features = None
+        self._task_name = task_name
+        self._task_texts = get_task_texts(task_name)
+        self._eval_text = self._task_texts[0]
 
     def _get_text_features(self, B, device):
-        """Get text features, encoding if needed."""
-        if self._cached_text_features is None or not self.training:
-            text_list = [self._task_text] * B
-            self._cached_text_features = self.text_encoder(text_list, device)
-        # During training, always re-project for gradient flow
+        """Get text features, sampling a random text during training."""
         if self.training:
-            text_list = [self._task_text] * B
-            return self.text_encoder(text_list, device)
-        return self._cached_text_features.expand(B, -1, -1)
+            text = sample_task_text(self._task_name)
+        else:
+            text = self._eval_text
+        text_list = [text] * B
+        return self.text_encoder(text_list, device)
 
     def forward(self, obs):
         """Encode observations with multimodal fusion.
@@ -136,7 +138,7 @@ class MultimodalEncoder(nn.Module):
         Returns:
             (B, T, latent_dim) observation embeddings
         """
-        assert self._task_text is not None, "Call set_task_text() before forward()"
+        assert self._task_name is not None, "Call set_task_name() before forward()"
 
         images = obs["image"]
         # images: (B, T, H, W, C) or (B, H, W, C) for single step

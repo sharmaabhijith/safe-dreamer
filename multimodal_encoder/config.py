@@ -25,9 +25,10 @@ class MultimodalEncoderConfig:
     dropout: float = 0.0
     visual_weight: float = 1.0
     text_weight: float = 0.5
+    query_weight: float = 1.0
 
     # Aggregation
-    aggregation_method: str = "attention_pool"  # "attention_pool" or "mean_pool"
+    aggregation_method: str = "attention_pool"  # "attention_pool", "mean_pool", or "flatten"
     latent_dim: int = 512  # Must match RSSM embed_size expectation
 
     # Training dynamics

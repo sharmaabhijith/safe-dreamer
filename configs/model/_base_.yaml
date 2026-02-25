@@ -1,4 +1,4 @@
-act_entropy: 1e-3
+act_entropy: 3e-3
 kl_free: 1.0
 imag_horizon: 20
 horizon: 333
@@ -21,27 +21,29 @@ multimodal_encoder:
   # Q-Former (lean config for 1M step budget)
   d_model: 256
   num_heads: 4
-  num_layers: 2
+  num_layers: 1
   num_queries: 16
   ffn_dim: 512
   dropout: 0.0
-  visual_weight: 0.9
-  text_weight: 0.1
+  visual_weight: 0.7
+  text_weight: 0.3
+  query_weight: 0
   # Aggregation
-  aggregation_method: "attention_pool"
+  aggregation_method: "flatten"
   latent_dim: 1024
   # Training
-  qformer_lr_scale: 0.5
+  qformer_lr_scale: 0.3
 
-lr: 5e-5
+lr: 8e-5
 agc: 0.3
+qformer_agc: 0.2
 pmin: 1e-3
 eps: 1e-20
 beta1: 0.9
 beta2: 0.999
 warmup: 1000
 slow_target_update: 1
-slow_target_fraction: 0.02
+slow_target_fraction: 0.01
 
 loss_scales:
   barlow: 0.06
@@ -53,7 +55,7 @@ loss_scales:
   rep: 0.1
   policy: 1.0
   value: 1.0
-  repval: 0.3
+  repval: 0.1
   swav: 1.0
   temp: 1.0
   norm: 1.0

@@ -16,10 +16,11 @@ class QFormerLayer(nn.Module):
     All use pre-norm (LayerNorm before attention/FFN).
     """
 
-    def __init__(self, d_model, num_heads, ffn_dim, dropout=0.0, visual_weight=1.0, text_weight=0.5):
+    def __init__(self, d_model, num_heads, ffn_dim, dropout=0.0, visual_weight=1.0, text_weight=0.5, query_weight=1.0):
         super().__init__()
         self.visual_weight = visual_weight
         self.text_weight = text_weight
+        self.query_weight = query_weight
         # Sub-layer 1: Self-attention among queries
         self.self_attn_norm = nn.LayerNorm(d_model, dtype=torch.float32)
         self.self_attn = nn.MultiheadAttention(
@@ -57,7 +58,7 @@ class QFormerLayer(nn.Module):
         """
         # Self-attention (pre-norm)
         q = self.self_attn_norm(queries)
-        queries = queries + self.self_attn(q, q, q, need_weights=False)[0]
+        queries = queries + self.query_weight * self.self_attn(q, q, q, need_weights=False)[0]
 
         # Visual cross-attention (pre-norm)
         q = self.visual_cross_norm(queries)
@@ -89,7 +90,15 @@ class QFormer(nn.Module):
 
         # Stack of Q-Former layers
         self.layers = nn.ModuleList([
-            QFormerLayer(config.d_model, config.num_heads, config.ffn_dim, config.dropout, config.visual_weight, config.text_weight)
+            QFormerLayer(
+                config.d_model, 
+                config.num_heads, 
+                config.ffn_dim, 
+                config.dropout, 
+                config.visual_weight, 
+                config.text_weight, 
+                config.query_weight
+            )
             for _ in range(config.num_layers)
         ])
 

@@ -49,6 +49,9 @@ class Dreamer(nn.Module):
                 num_queries=int(mm_cfg.num_queries),
                 ffn_dim=int(mm_cfg.ffn_dim),
                 dropout=float(mm_cfg.dropout),
+                visual_weight=float(mm_cfg.visual_weight),
+                text_weight=float(mm_cfg.text_weight),
+                query_weight=float(mm_cfg.query_weight),
                 aggregation_method=str(mm_cfg.aggregation_method),
                 latent_dim=int(mm_cfg.latent_dim),
                 qformer_lr_scale=float(mm_cfg.qformer_lr_scale),
@@ -192,8 +195,19 @@ class Dreamer(nn.Module):
                         self._named_params[f"{name}.{param_name}"] = param
         print(f"Optimizer has: {sum(p.numel() for p in self._named_params.values())} trainable parameters.")
 
-        def _agc(params):
-            clip_grad_agc_(params, float(config.agc), float(config.pmin), foreach=True)
+        if self.use_multimodal_encoder:
+            qformer_param_ids_agc = {id(p) for p in self.encoder.get_qformer_parameters()}
+            def _agc(named_params):
+                params = list(named_params)
+                other = [p for p in params if id(p) not in qformer_param_ids_agc]
+                qformer = [p for p in params if id(p) in qformer_param_ids_agc]
+                if other:
+                    clip_grad_agc_(other, float(config.agc), float(config.pmin), foreach=True)
+                if qformer:
+                    clip_grad_agc_(qformer, float(config.qformer_agc), float(config.pmin), foreach=True)
+        else:
+            def _agc(params):
+                clip_grad_agc_(params, float(config.agc), float(config.pmin), foreach=True)
 
         self._agc = _agc
 
@@ -233,13 +247,12 @@ class Dreamer(nn.Module):
             print("Compiling update function with torch.compile...")
             self._cal_grad = torch.compile(self._cal_grad, mode="reduce-overhead")
 
-    def set_task_text(self, task_text):
-        """Set task description for the multimodal encoder. No-op if not using it."""
+    def set_task_name(self, task_name):
+        """Set task name for the multimodal encoder (loads text pool). No-op if not using it."""
         if self.use_multimodal_encoder:
-            self.encoder.set_task_text(task_text)
-            # Also set on the frozen copy
+            self.encoder.set_task_name(task_name)
             if hasattr(self, '_frozen_encoder'):
-                self._frozen_encoder.set_task_text(task_text)
+                self._frozen_encoder.set_task_name(task_name)
 
     def _update_slow_target(self):
         """Update slow-moving value target network."""
@@ -275,9 +288,9 @@ class Dreamer(nn.Module):
                 assert name_orig == name_new
                 param_new.data = param_orig.data
                 param_new.requires_grad_(False)
-            # Copy task text
-            if self.encoder._task_text is not None:
-                self._frozen_encoder.set_task_text(self.encoder._task_text)
+            # Copy task name (shares the text pool)
+            if self.encoder._task_name is not None:
+                self._frozen_encoder.set_task_name(self.encoder._task_name)
         else:
             self._frozen_encoder = copy.deepcopy(self.encoder)
             for (name_orig, param_orig), (name_new, param_new) in zip(
