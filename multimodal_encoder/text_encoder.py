@@ -65,7 +65,7 @@ class TextEncoder(nn.Module):
         ).to(device)
 
         # (1, N_text, d_text)
-        clip_out = self._text_model(**tokens).last_hidden_state.detach()
+        clip_out = self._text_model(**tokens).last_hidden_state.detach().clone()
         self._clip_cache[text] = clip_out
         return clip_out
 
