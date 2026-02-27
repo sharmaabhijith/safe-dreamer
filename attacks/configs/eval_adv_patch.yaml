@@ -5,8 +5,8 @@ defaults:
   - _self_
 
 # Required paths
-agent_ckpt: logdir/2026-02-24/04-50-41/latest.pt  # path to trained agent latest.pt
-patch_path: attacks/logdir/2026-02-26/18-19-26/best_patch.pt  # path to trained patch .pt file
+agent_ckpt: logdir/2026-02-27/05-15-26/latest.pt  # path to trained agent latest.pt
+patch_path: attacks/logdir/2026-02-27/09-13-46/best_patch.pt  # path to trained patch .pt file
 
 logdir: attacks/logdir/eval/${now:%Y-%m-%d}/${now:%H-%M-%S}
 seed: 0
@@ -21,7 +21,7 @@ hydra:
 
 # Must match the training run's model config exactly
 model:
-  use_multimodal_encoder: true
+  use_multimodal_encoder: false
 
 # Re-export for env construction compatibility
 batch_size: 4

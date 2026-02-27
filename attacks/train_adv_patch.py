@@ -21,6 +21,7 @@ import hydra
 import numpy as np
 import torch
 import torch.nn.functional as F
+from hydra.core.hydra_config import HydraConfig
 from omegaconf import OmegaConf
 from torch.amp import autocast
 
@@ -225,9 +226,14 @@ def main(config):
     tools.set_seed_everywhere(config.seed)
     device = torch.device(config.device)
 
-    logdir = pathlib.Path(config.logdir).expanduser()
+    # HydraConfig.get().runtime.output_dir is the absolute path to the run dir,
+    # even though Hydra has already cd'd into it. config.logdir is relative after the cd.
+    logdir = pathlib.Path(HydraConfig.get().runtime.output_dir)
     logdir.mkdir(parents=True, exist_ok=True)
     print(f"Attack logdir: {logdir}")
+
+    logger = tools.Logger(logdir)
+    logger.log_hydra_config(config, name="attack_config", step=0)
 
     # Create environments
     print("Creating environments...")
@@ -245,7 +251,10 @@ def main(config):
     print(f"Collecting {atk.collect_episodes} episodes...")
     episodes = collect_trajectories(agent, eval_envs, atk.collect_episodes, device)
     ep_returns = [ep["reward"].sum().item() for ep in episodes]
-    print(f"Collected {len(episodes)} episodes. Mean return: {np.mean(ep_returns):.1f}")
+    mean_clean_return = np.mean(ep_returns)
+    print(f"Collected {len(episodes)} episodes. Mean return: {mean_clean_return:.1f}")
+    logger.scalar("attack/clean_return", mean_clean_return)
+    logger.write(0)
 
     dataset = TrajectoryDataset(episodes, atk.context_len, device)
 
@@ -336,14 +345,26 @@ def main(config):
 
         if step % log_every == 0 or step == 1:
             grad_norm = patch_module.delta.grad.norm().item() if patch_module.delta.grad is not None else 0.0
+            current_lr = scheduler.get_lr()[0]
             print(
                 f"[Step {step:5d}/{atk.steps}] "
                 f"loss={metrics['total_loss']:.4f} "
                 f"imag_return={metrics['imagined_return']:.4f} "
                 f"tv={metrics.get('tv_loss', 0):.4f} "
                 f"grad_norm={grad_norm:.4f} "
-                f"lr={scheduler.get_lr()[0]:.6f}"
+                f"lr={current_lr:.6f}"
             )
+            logger.scalar("attack/total_loss", metrics["total_loss"])
+            logger.scalar("attack/imagined_return", metrics["imagined_return"])
+            logger.scalar("attack/grad_norm", grad_norm)
+            logger.scalar("attack/lr", current_lr)
+            for key in ("tv_loss", "l2_loss", "kl_post", "action_shift"):
+                if key in metrics:
+                    logger.scalar(f"attack/{key}", metrics[key])
+            # Log the patch image
+            patch_img = patch_module.get_patch().squeeze(0).detach().cpu().numpy()  # (H, W, C)
+            logger.image("attack/patch", patch_img.transpose(2, 0, 1))  # (C, H, W) for TB
+            logger.write(step)
 
         if metrics["total_loss"] < best_loss:
             best_loss = metrics["total_loss"]
@@ -353,6 +374,10 @@ def main(config):
     patch_module.save(logdir / "final_patch.pt")
     print(f"Final patch saved to {logdir / 'final_patch.pt'}")
     print(f"Best patch saved to {logdir / 'best_patch.pt'} (loss={best_loss:.4f})")
+    logger.scalar("attack/best_loss", best_loss)
+    patch_img = patch_module.get_patch().squeeze(0).detach().cpu().numpy()
+    logger.image("attack/final_patch", patch_img.transpose(2, 0, 1))
+    logger.write(atk.steps)
 
     # Visualization
     patch_module.eval()
