@@ -1,0 +1,38 @@
+# Adversarial patch attack hyperparameters
+# Patch geometry
+patch_hw: [16, 16]
+placement: "bottom_center"  # fixed, bottom_center, top_center, center, random, saliency
+x0: null  # for fixed placement
+y0: null  # for fixed placement
+
+# Patch parameterization
+eps: null  # null = direct [0,1], float = base+delta with l_inf bound
+base_color: [0.5, 0.5, 0.5]
+
+# EoT (Expectation over Transformations)
+eot_translations: 0   # number of EoT samples (0 = disabled)
+eot_max_shift: 2      # max pixel shift per EoT sample
+eot_brightness: 0.0   # max brightness perturbation per EoT sample
+
+# Floor mask (optional)
+floor_mask_path: null
+
+# Data collection
+collect_episodes: 20
+
+# Attack objective
+context_len: 16       # RSSM context window
+imag_horizon: 15      # imagination rollout steps
+use_mode_actions: true # use mode (deterministic) actions in imagination
+
+# Loss weights
+w_return: 1.0         # weight on imagined return (primary objective)
+w_kl: 0.0             # weight on posterior KL divergence (auxiliary)
+w_action: 0.0         # weight on action shift (auxiliary)
+w_tv: 0.01            # total variation regularization
+w_l2: 0.001           # L2 regularization on delta
+
+# Optimization
+steps: 5000
+lr: 0.05
+batch_size: 8

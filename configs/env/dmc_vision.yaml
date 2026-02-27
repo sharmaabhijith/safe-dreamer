@@ -1,5 +1,5 @@
 task: 'dmc_walker_walk'
-steps: 1.2e6
+steps: 7.2e5
 env_num: 16
 eval_episode_num: 10
 action_repeat: 2

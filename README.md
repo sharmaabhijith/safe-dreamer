@@ -65,6 +65,74 @@ export MUJOCO_EGL_DEVICE_ID=0
 More details: [Working with MuJoCo-based environments](https://docs.pytorch.org/rl/stable/reference/generated/knowledge_base/MUJOCO_INSTALLATION.html)
 
 
+## Adversarial Patch (Planning-Level Attack)
+
+This repo includes an adversarial patch attack against the agent's world-model planning pipeline. A small localized image patch is optimized to minimize the agent's **imagined return** by differentiating through the encoder, RSSM posterior, and imagination rollout. This is a *planning-level* attack, not merely an encoder feature attack.
+
+Reference: [Adversarial Attacks on World-Model-Based RL](https://proceedings.neurips.cc/paper_files/paper/2024/file/17af43527227c5c96db0f8d4c6aadc4e-Paper-Conference.pdf) (NeurIPS 2024)
+
+### Quick Start
+
+**1. Train the agent** (standard training):
+```bash
+python3 train.py logdir=./logdir/myrun env=dmc_vision env.task=dmc_walker_walk model.rep_loss=r2dreamer
+```
+
+**2. Train the adversarial patch** (all hyperparams in `configs/attack/adv_patch.yaml`):
+```bash
+python3 train_adv_patch.py agent_ckpt=./logdir/myrun/latest.pt
+```
+
+**3. Evaluate clean vs patched**:
+```bash
+python3 eval_adv_patch.py \
+    agent_ckpt=./logdir/myrun/latest.pt \
+    patch_path=./logdir/attack/<timestamp>/best_patch.pt
+```
+
+### Patch Placement Options
+
+| Placement | Description |
+|-----------|-------------|
+| `bottom_center` | Bottom-center band (default) |
+| `top_center` | Top-center band |
+| `center` | Center of image |
+| `fixed` | Custom position via `attack.x0`, `attack.y0` |
+| `saliency` | Auto-selected via gradient saliency |
+
+### Key Configuration (configs/attack/adv_patch.yaml)
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `patch_hw` | [16, 16] | Patch height and width |
+| `placement` | bottom_center | Placement strategy |
+| `eps` | null | L-inf bound (null = direct [0,1]) |
+| `w_return` | 1.0 | Weight on imagined return loss |
+| `w_kl` | 0.0 | Posterior KL divergence weight |
+| `w_action` | 0.0 | Action shift weight |
+| `w_tv` | 0.01 | Total variation regularization |
+| `eot_translations` | 0 | EoT random translation samples |
+| `steps` | 5000 | Optimization steps |
+| `lr` | 0.05 | Learning rate |
+
+### Files
+
+| File | Purpose |
+|------|---------|
+| `attacks/adv_patch.py` | AdversarialPatch module + PlanningAttackLoss |
+| `train_adv_patch.py` | Data collection + patch optimization script |
+| `eval_adv_patch.py` | Clean vs patched evaluation script |
+| `configs/attack/adv_patch.yaml` | Attack hyperparameters |
+| `configs/train_adv_patch.yaml` | Top-level Hydra config for patch training |
+| `configs/eval_adv_patch.yaml` | Top-level Hydra config for evaluation |
+| `tests/test_adv_patch_apply.py` | Unit tests for patch mechanics |
+
+### Running Tests
+```bash
+python -m pytest tests/test_adv_patch_apply.py -v
+```
+
+
 ## Code formatting
 
 If you want automatic formatting/basic checks before commits, you can enable `pre-commit`:

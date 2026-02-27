@@ -1,38 +1,44 @@
 defaults:
   - env: dmc_vision
   - model: size12M
-  # Disable Hydra's Python logging-to-file (train.log)
+  - attack: adv_patch
   - override hydra/job_logging: disabled
   - _self_
 
-logdir: logdir/${now:%Y-%m-%d}/${now:%H-%M-%S}
+# Agent checkpoint to attack
+agent_ckpt: logdir/2026-02-24/04-50-41/latest.pt  # required: path to latest.pt
+
+logdir: attacks/logdir/${now:%Y-%m-%d}/${now:%H-%M-%S}
 seed: 0
 deterministic_run: False
 device: 'cuda:7'
 
 hydra:
+  searchpath:
+    - file://configs  # resolves env/ and model/ groups from root configs/
   run:
     dir: ${logdir}
 
-batch_size: 16
+# Re-export for env construction compatibility
+batch_size: 4
 batch_length: 64
 
 buffer:
   batch_size: ${batch_size}
   batch_length: ${batch_length}
-  max_size: 5e5
+  max_size: 1e4
   device: ${device}
-  storage_device: 'cuda:0'
+  storage_device: ${device}
 
 trainer:
-  steps: ${env.steps}
+  steps: 0
   pretrain: 0
-  eval_every: 1e4
+  eval_every: 1e9
   eval_episode_num: ${env.eval_episode_num}
   batch_size: ${batch_size}
   batch_length: ${batch_length}
-  train_ratio: ${env.train_ratio}
+  train_ratio: 1
   video_pred_log: False
   params_hist_log: False
-  update_log_every: 5e3
+  update_log_every: 1e9
   action_repeat: ${env.action_repeat}
