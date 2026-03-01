@@ -235,6 +235,12 @@ def main(config):
     logger = tools.Logger(logdir)
     logger.log_hydra_config(config, name="attack_config", step=0)
 
+    # Override env settings so make_envs creates only the environments we need:
+    # - eval_episode_num controls the parallel eval envs used for collection
+    # - env_num=1 avoids wasting resources on unused train envs
+    OmegaConf.update(config, "env.eval_episode_num", config.attack.collect_episodes)
+    OmegaConf.update(config, "env.env_num", 1)
+
     # Create environments
     print("Creating environments...")
     _, eval_envs, obs_space, act_space = make_envs(config.env)

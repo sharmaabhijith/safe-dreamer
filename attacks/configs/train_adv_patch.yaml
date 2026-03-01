@@ -6,7 +6,7 @@ defaults:
   - _self_
 
 # Agent checkpoint to attack
-agent_ckpt: logdir/2026-02-27/05-15-26/latest.pt  # required: path to latest.pt
+agent_ckpt: logdir/2026-02-25/10-05-21/latest.pt  # required: path to latest.pt
 
 logdir: attacks/logdir/${now:%Y-%m-%d}/${now:%H-%M-%S}
 seed: 0

@@ -37,26 +37,18 @@ class Dreamer(nn.Module):
         if self.use_multimodal_encoder:
             mm_cfg = config.multimodal_encoder
             self._mm_config = MultimodalEncoderConfig(
-                visual_channels=list(mm_cfg.visual_channels),
-                visual_kernel_size=int(mm_cfg.visual_kernel_size),
-                visual_stride=int(mm_cfg.visual_stride),
-                image_size=int(mm_cfg.image_size),
-                text_encoder_name=str(mm_cfg.text_encoder_name),
+                text_context_dim=int(mm_cfg.text_context_dim),
+                clip_model=str(mm_cfg.clip_model),
                 max_text_length=int(mm_cfg.max_text_length),
-                d_model=int(mm_cfg.d_model),
-                num_heads=int(mm_cfg.num_heads),
-                num_layers=int(mm_cfg.num_layers),
-                num_queries=int(mm_cfg.num_queries),
-                ffn_dim=int(mm_cfg.ffn_dim),
-                dropout=float(mm_cfg.dropout),
-                visual_weight=float(mm_cfg.visual_weight),
-                text_weight=float(mm_cfg.text_weight),
-                query_weight=float(mm_cfg.query_weight),
-                aggregation_method=str(mm_cfg.aggregation_method),
-                latent_dim=int(mm_cfg.latent_dim),
-                qformer_lr_scale=float(mm_cfg.qformer_lr_scale),
+                use_text_gate=bool(mm_cfg.use_text_gate),
+                gate_init_bias=float(mm_cfg.gate_init_bias),
             )
-            self.encoder = MultimodalEncoder(self._mm_config)
+            # Determine input shape from obs_space (CNN shapes)
+            import re
+            cnn_shapes = {k: v for k, v in shapes.items() if len(v) == 3 and re.match(config.encoder.cnn_keys, k)}
+            input_ch = sum(v[-1] for v in cnn_shapes.values())
+            input_shape = tuple(cnn_shapes.values())[0][:2] + (input_ch,)
+            self.encoder = MultimodalEncoder(self._mm_config, config.encoder.cnn, input_shape)
         else:
             self.encoder = networks.MultiEncoder(config.encoder, shapes)
         self.embed_size = self.encoder.out_dim
@@ -173,11 +165,11 @@ class Dreamer(nn.Module):
                 # Detailed breakdown for multimodal encoder
                 if key == "encoder" and isinstance(module, MultimodalEncoder):
                     submodules = {
-                        "visual_encoder (CNN)": module.visual_encoder,
-                        "text_encoder (CLIP)": module.text_encoder,
-                        "qformer": module.qformer,
-                        "aggregation_head": module.aggregation_head,
+                        "visual_encoder (CNN+FiLM)": module.visual_encoder,
+                        "text_context_encoder (CLIP+pool+proj)": module.text_context_encoder,
                     }
+                    if module._use_text_gate:
+                        submodules["text_gate"] = module.text_gate
                     for sub_key, sub_module in submodules.items():
                         sub_all = sum(p.numel() for p in sub_module.parameters())
                         sub_train = sum(p.numel() for p in sub_module.parameters() if p.requires_grad)
@@ -195,19 +187,8 @@ class Dreamer(nn.Module):
                         self._named_params[f"{name}.{param_name}"] = param
         print(f"Optimizer has: {sum(p.numel() for p in self._named_params.values())} trainable parameters.")
 
-        if self.use_multimodal_encoder:
-            qformer_param_ids_agc = {id(p) for p in self.encoder.get_qformer_parameters()}
-            def _agc(named_params):
-                params = list(named_params)
-                other = [p for p in params if id(p) not in qformer_param_ids_agc]
-                qformer = [p for p in params if id(p) in qformer_param_ids_agc]
-                if other:
-                    clip_grad_agc_(other, float(config.agc), float(config.pmin), foreach=True)
-                if qformer:
-                    clip_grad_agc_(qformer, float(config.qformer_agc), float(config.pmin), foreach=True)
-        else:
-            def _agc(params):
-                clip_grad_agc_(params, float(config.agc), float(config.pmin), foreach=True)
+        def _agc(params):
+            clip_grad_agc_(params, float(config.agc), float(config.pmin), foreach=True)
 
         self._agc = _agc
 
@@ -216,28 +197,13 @@ class Dreamer(nn.Module):
                 return min(1.0, (step + 1) / config.warmup)
             return 1.0
 
-        if self.use_multimodal_encoder:
-            qformer_param_ids = {id(p) for p in self.encoder.get_qformer_parameters()}
-            other_params = [p for p in self._named_params.values() if id(p) not in qformer_param_ids]
-            qformer_params = [p for p in self._named_params.values() if id(p) in qformer_param_ids]
-            self._optimizer = LaProp(
-                [
-                    {"params": other_params},
-                    {"params": qformer_params, "lr": config.lr * self._mm_config.qformer_lr_scale},
-                ],
-                lr=config.lr,
-                betas=(config.beta1, config.beta2),
-                eps=config.eps,
-            )
-            self._scheduler = LambdaLR(self._optimizer, lr_lambda=[lr_lambda, lr_lambda])
-        else:
-            self._optimizer = LaProp(
-                self._named_params.values(),
-                lr=config.lr,
-                betas=(config.beta1, config.beta2),
-                eps=config.eps,
-            )
-            self._scheduler = LambdaLR(self._optimizer, lr_lambda=lr_lambda)
+        self._optimizer = LaProp(
+            self._named_params.values(),
+            lr=config.lr,
+            betas=(config.beta1, config.beta2),
+            eps=config.eps,
+        )
+        self._scheduler = LambdaLR(self._optimizer, lr_lambda=lr_lambda)
 
         self._scaler = GradScaler()
 
@@ -269,36 +235,24 @@ class Dreamer(nn.Module):
         self._slow_value.train(False)
         # Keep the frozen CLIP text model in eval mode
         if self.use_multimodal_encoder:
-            self.encoder.text_encoder._text_model.eval()
+            self.encoder.text_context_encoder._text_model.eval()
         return self
 
     def clone_and_freeze(self):
         # NOTE: "requires_grad" affects whether a parameter is updated
         # not whether gradients flow through its operations
+        self._frozen_encoder = copy.deepcopy(self.encoder)
         if self.use_multimodal_encoder:
-            # Create a fresh frozen copy. CLIP model is shared via module-level cache
-            # in TextEncoder, so this doesn't reload it.
-            self._frozen_encoder = MultimodalEncoder(self._mm_config)
             # Share CLIP output cache for efficiency
-            self._frozen_encoder.text_encoder._clip_cache = self.encoder.text_encoder._clip_cache
-            # Share data pointers for all parameters (CLIP params are already shared)
-            for (name_orig, param_orig), (name_new, param_new) in zip(
-                self.encoder.named_parameters(), self._frozen_encoder.named_parameters()
-            ):
-                assert name_orig == name_new
-                param_new.data = param_orig.data
-                param_new.requires_grad_(False)
-            # Copy task name (shares the text pool)
-            if self.encoder._task_name is not None:
-                self._frozen_encoder.set_task_name(self.encoder._task_name)
-        else:
-            self._frozen_encoder = copy.deepcopy(self.encoder)
-            for (name_orig, param_orig), (name_new, param_new) in zip(
-                self.encoder.named_parameters(), self._frozen_encoder.named_parameters()
-            ):
-                assert name_orig == name_new
-                param_new.data = param_orig.data
-                param_new.requires_grad_(False)
+            self._frozen_encoder.text_context_encoder._clip_cache = self.encoder.text_context_encoder._clip_cache
+        for (name_orig, param_orig), (name_new, param_new) in zip(
+            self.encoder.named_parameters(), self._frozen_encoder.named_parameters()
+        ):
+            assert name_orig == name_new
+            param_new.data = param_orig.data
+            param_new.requires_grad_(False)
+        if self.use_multimodal_encoder and self.encoder._task_name is not None:
+            self._frozen_encoder.set_task_name(self.encoder._task_name)
 
         self._frozen_rssm = copy.deepcopy(self.rssm)
         for (name_orig, param_orig), (name_new, param_new) in zip(
@@ -361,7 +315,11 @@ class Dreamer(nn.Module):
         torch.compiler.cudagraph_mark_step_begin()
         p_obs = self.preprocess(obs)
         # (B, E)
-        embed = self._frozen_encoder(p_obs)
+        if self.use_multimodal_encoder and self._frozen_encoder._use_text_gate:
+            # During inference, use text-gated rssm_embed for consistency with training
+            _visual, embed = self._frozen_encoder(p_obs, return_both=True)
+        else:
+            embed = self._frozen_encoder(p_obs)
         prev_stoch, prev_deter, prev_action = (
             state["stoch"],
             state["deter"],
@@ -398,7 +356,10 @@ class Dreamer(nn.Module):
 
         B = min(data["action"].shape[0], 6)
         # (B, T, E)
-        embed = self.encoder(data)
+        if self.use_multimodal_encoder and self.encoder._use_text_gate:
+            _visual, embed = self.encoder(data, return_both=True)
+        else:
+            embed = self.encoder(data)
 
         post_stoch, post_deter, _ = self.rssm.observe(
             embed[:B, :5],
@@ -447,7 +408,8 @@ class Dreamer(nn.Module):
         self._optimizer.zero_grad(set_to_none=True)  # reset grads
         mets["opt/lr"] = self._scheduler.get_lr()[0]
         if self.use_multimodal_encoder:
-            mets["opt/qformer_lr"] = self._scheduler.get_lr()[1]
+            diag = self.encoder.get_diagnostics()
+            mets["encoder/text_gate_mean"] = diag["text_gate_mean"]
         mets["opt/grad_scale"] = self._scaler.get_scale()
         if self._log_grads:
             updates = [(new - old) for (new, old) in zip(self._named_params.values(), old_params)]
@@ -478,9 +440,14 @@ class Dreamer(nn.Module):
 
         # === World model: posterior rollout and KL losses ===
         # (B, T, E)
-        embed = self.encoder(data)
+        if self.use_multimodal_encoder and self.encoder._use_text_gate:
+            visual_embed, rssm_embed = self.encoder(data, return_both=True)
+        else:
+            embed = self.encoder(data)
+            visual_embed = embed
+            rssm_embed = embed
         # (B, T, S, K), (B, T, D), (B, T, S, K)
-        post_stoch, post_deter, post_logit = self.rssm.observe(embed, data["action"], initial, data["is_first"])
+        post_stoch, post_deter, post_logit = self.rssm.observe(rssm_embed, data["action"], initial, data["is_first"])
         # (B, T, S, K)
         _, prior_logit = self.rssm.prior(post_deter)
         dyn_loss, rep_loss = self.rssm.kl_loss(post_logit, prior_logit, self.kl_free)
@@ -496,11 +463,12 @@ class Dreamer(nn.Module):
             losses.update(recon_losses)
         elif self.rep_loss == "r2dreamer":
             # R2-Dreamer: Barlow Twins style redundancy reduction between latent features and encoder embeddings.
+            # When using multimodal encoder, visual_embed is PURE visual (no text contamination).
             # Flatten batch/time dims for a single cross-correlation matrix.
             # (B, T, F) -> (B*T, F)
             x1 = self.prj(feat[:, :].reshape(B * T, -1))
             # (B, T, E) -> (B*T, E)
-            x2 = embed.reshape(B * T, -1).detach()  # this detach is important
+            x2 = visual_embed.reshape(B * T, -1).detach()  # this detach is important
 
             x1_norm = (x1 - x1.mean(0)) / (x1.std(0) + 1e-8)
             x2_norm = (x2 - x2.mean(0)) / (x2.std(0) + 1e-8)
@@ -515,7 +483,7 @@ class Dreamer(nn.Module):
             # (B, T, F) -> (B*T, F)
             x1 = self.prj(feat[:, :].reshape(B * T, -1))
             # (B, T, E) -> (B*T, E)
-            x2 = embed.reshape(B * T, -1).detach()  # this detach is important
+            x2 = visual_embed.reshape(B * T, -1).detach()  # this detach is important
             logits = torch.matmul(x1, x2.T)
             norm_logits = logits - torch.max(logits, 1)[0][:, None]
             labels = torch.arange(norm_logits.shape[0]).long().to(self.device)
@@ -531,9 +499,14 @@ class Dreamer(nn.Module):
                 )
                 ema_proj = self.ema_proj(data_aug)
 
-            embed_aug = self.encoder(data_aug)
+            if self.use_multimodal_encoder and self.encoder._use_text_gate:
+                visual_embed_aug, rssm_embed_aug = self.encoder(data_aug, return_both=True)
+                embed_aug = visual_embed_aug
+            else:
+                embed_aug = self.encoder(data_aug)
+                rssm_embed_aug = embed_aug
             post_stoch_aug, post_deter_aug, _ = self.rssm.observe(
-                embed_aug, data_aug["action"], initial_aug, data_aug["is_first"]
+                rssm_embed_aug, data_aug["action"], initial_aug, data_aug["is_first"]
             )
             proto_losses = self.proto_loss(post_stoch_aug, post_deter_aug, embed_aug, ema_proj)
             losses.update(proto_losses)

@@ -75,7 +75,7 @@ def main(config):
         if task_name.startswith("dmc_"):
             task_name = task_name[4:]
         agent.set_task_name(task_name)
-        print(f"Task: {task_name} (100 text descriptions loaded for random sampling)")
+        print(f"Task: {task_name} (text descriptions loaded for random sampling)")
 
     policy_trainer = OnlineTrainer(config.trainer, replay_buffer, logger, logdir, train_envs, eval_envs)
     policy_trainer.begin(agent)

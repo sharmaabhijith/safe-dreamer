@@ -170,6 +170,13 @@ def main(config):
     logdir.mkdir(parents=True, exist_ok=True)
     print(f"Eval logdir: {logdir}")
 
+    # Use attack config for episode count, override env so make_envs
+    # creates the right number of parallel eval environments.
+    # env_num=1 avoids wasting resources on unused train envs.
+    num_episodes = config.attack.eval_episode_num
+    OmegaConf.update(config, "env.eval_episode_num", num_episodes)
+    OmegaConf.update(config, "env.env_num", 1)
+
     # Create environments
     print("Creating environments...")
     _, eval_envs, obs_space, act_space = make_envs(config.env)
@@ -185,8 +192,6 @@ def main(config):
     patch_module = AdversarialPatch.load(patch_path, device=device)
     patch_module.eval()
     print(f"Patch: {patch_module.ph}x{patch_module.pw} at ({patch_module._x0}, {patch_module._y0})")
-
-    num_episodes = config.env.eval_episode_num
 
     # Clean evaluation
     print(f"\n--- Clean evaluation ({num_episodes} episodes) ---")

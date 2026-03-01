@@ -7,36 +7,19 @@ compile: True
 log_grads: False
 device: ${device}
 rep_loss: "r2dreamer" # r2dreamer/dreamer/infonce/dreamerpro
-use_multimodal_encoder: False # Enable Q-Former multimodal encoder
+use_multimodal_encoder: False # Enable FiLM-conditioned multimodal encoder
 
 multimodal_encoder:
-  # Visual Encoder (CNN)
-  visual_channels: [32, 64, 128, 256]
-  visual_kernel_size: 4
-  visual_stride: 2
-  image_size: 64
-  # Text Encoder
-  text_encoder_name: "openai/clip-vit-base-patch32"
+  # Text context (frozen CLIP + trainable pooling + projection)
+  text_context_dim: 256
+  clip_model: "openai/clip-vit-base-patch32"
   max_text_length: 77
-  # Q-Former (lean config for 1M step budget)
-  d_model: 256
-  num_heads: 4
-  num_layers: 1
-  num_queries: 8
-  ffn_dim: 512
-  dropout: 0.0
-  visual_weight: 0.7
-  text_weight: 0.3
-  query_weight: 0.1
-  # Aggregation
-  aggregation_method: "flatten"
-  latent_dim: 1024
-  # Training
-  qformer_lr_scale: 0.5
+  # Text gate (learned mixture of visual + text for RSSM input)
+  use_text_gate: True
+  gate_init_bias: -3.0  # sigmoid(-3) ≈ 0.047 text influence at init
 
 lr: 4e-5
 agc: 0.3
-qformer_agc: 0.3
 pmin: 1e-3
 eps: 1e-20
 beta1: 0.9

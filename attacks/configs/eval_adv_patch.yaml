@@ -1,17 +1,19 @@
 defaults:
   - env: dmc_vision
   - model: size12M
+  - attack: adv_patch
   - override hydra/job_logging: disabled
   - _self_
 
 # Required paths
-agent_ckpt: logdir/2026-02-27/05-15-26/latest.pt  # path to trained agent latest.pt
+#agent_ckpt: logdir/2026-02-27/05-15-26/latest.pt  # path to trained agent latest.pt
+agent_ckpt: logdir/2026-02-24/04-50-41/latest.pt  # path to trained agent latest.pt
 patch_path: attacks/logdir/2026-02-27/09-13-46/best_patch.pt  # path to trained patch .pt file
 
 logdir: attacks/logdir/eval/${now:%Y-%m-%d}/${now:%H-%M-%S}
 seed: 0
 deterministic_run: False
-device: 'cuda:7'
+device: 'cuda:3'
 
 hydra:
   searchpath:
@@ -21,7 +23,7 @@ hydra:
 
 # Must match the training run's model config exactly
 model:
-  use_multimodal_encoder: false
+  use_multimodal_encoder: true
 
 # Re-export for env construction compatibility
 batch_size: 4
@@ -38,7 +40,6 @@ trainer:
   steps: 0
   pretrain: 0
   eval_every: 1e9
-  eval_episode_num: ${env.eval_episode_num}
   batch_size: ${batch_size}
   batch_length: ${batch_length}
   train_ratio: 1

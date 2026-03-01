@@ -18,7 +18,8 @@ eot_brightness: 0.0   # max brightness perturbation per EoT sample
 floor_mask_path: null
 
 # Data collection
-collect_episodes: 30
+collect_episodes: 20
+eval_episode_num: 100  # episodes for attack evaluation (clean vs patched)
 
 # Attack objective
 context_len: 16       # RSSM context window
