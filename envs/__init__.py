@@ -12,6 +12,17 @@ def make_envs(config):
     return train_envs, eval_envs, obs_space, act_space
 
 
+def make_eval_envs(config, num_envs=None):
+    """Create evaluation-only environments, optionally with video background."""
+    n = num_envs or config.eval_episode_num
+    def env_constructor(idx):
+        return lambda: make_env(config, idx)
+    envs = parallel.SerialEnv(env_constructor, n, config.device)
+    obs_space = envs.observation_space
+    act_space = envs.action_space
+    return envs, obs_space, act_space
+
+
 def make_env(config, id):
     suite, task = config.task.split("_", 1)
     if suite == "dmc":
@@ -19,6 +30,11 @@ def make_env(config, id):
 
         env = dmc.DeepMindControl(task, config.action_repeat, config.size, seed=config.seed + id)
         env = wrappers.NormalizeActions(env)
+        # Optional video background distractor
+        video_dir = getattr(config, "video_dir", None)
+        if video_dir:
+            from envs.video_background import VideoBackground
+            env = VideoBackground(env, video_dir=video_dir, size=config.size, seed=config.seed + id)
     elif suite == "atari":
         import envs.atari as atari
 

@@ -7,7 +7,7 @@ compile: True
 log_grads: False
 device: ${device}
 rep_loss: "r2dreamer" # r2dreamer/dreamer/infonce/dreamerpro
-use_multimodal_encoder: False # Enable FiLM-conditioned multimodal encoder
+use_multimodal_encoder: True # Enable FiLM-conditioned multimodal encoder
 
 multimodal_encoder:
   # Text context (frozen CLIP + trainable pooling + projection)
