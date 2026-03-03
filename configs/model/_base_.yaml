@@ -16,7 +16,7 @@ multimodal_encoder:
   max_text_length: 77
   # Text gate (learned mixture of visual + text for RSSM input)
   use_text_gate: True
-  gate_init_bias: -3.0  # sigmoid(-3) ≈ 0.047 text influence at init
+  gate_init_bias: -2.0  # sigmoid(-3) ≈ 0.047 text influence at init
 
 lr: 4e-5
 agc: 0.3

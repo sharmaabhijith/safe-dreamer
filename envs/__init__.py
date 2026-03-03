@@ -35,6 +35,23 @@ def make_env(config, id):
         if video_dir:
             from envs.video_background import VideoBackground
             env = VideoBackground(env, video_dir=video_dir, size=config.size, seed=config.seed + id)
+    elif suite == "distract":
+        from envs.dmc_distracting import DistractingControl
+
+        env = DistractingControl(
+            task,
+            difficulty=getattr(config, "difficulty", "easy"),
+            background_dataset_path=getattr(config, "background_dataset_path", None),
+            background_dataset_videos=getattr(config, "background_dataset_videos", "train"),
+            dynamic=getattr(config, "dynamic", True),
+            background=getattr(config, "background", True),
+            camera=getattr(config, "camera", True),
+            color=getattr(config, "color", True),
+            action_repeat=config.action_repeat,
+            size=tuple(config.size),
+            seed=config.seed + id,
+        )
+        env = wrappers.NormalizeActions(env)
     elif suite == "atari":
         import envs.atari as atari
 
