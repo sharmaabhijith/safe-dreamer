@@ -25,11 +25,11 @@ models:
 # Evaluation settings
 eval_episodes: 10
 seed: 0
-device: 'cuda:0'
+device: 'cuda:4'
 
 # Video distractor settings
 # Set to null to skip distractor evaluation (clean-only)
-video_dir: 'kinetics400/videos/train'
+video_dir: null
 
 # TensorBoard logging directory
 logdir: 'eval_results'

@@ -55,6 +55,8 @@ Texture = collections.namedtuple('Texture', ('size', 'address', 'textures'))
 
 def _imread(path):
     """Load an image as a uint8 numpy array (H, W, 3)."""
+    if isinstance(path, bytes):
+        path = path.decode()
     img = Image.open(path).convert('RGB')
     return np.asarray(img, dtype=np.uint8)
 
@@ -82,8 +84,11 @@ def _blend_to_background(alpha, image, background):
 def _listdir_sorted(path):
     """Return sorted list of files in *path*, filtering out directories."""
     return sorted(
-        f for f in os.listdir(path)
-        if os.path.isfile(os.path.join(path, f))
+        f if isinstance(f, str) else f.decode()
+        for f in os.listdir(path)
+        if os.path.isfile(os.path.join(
+            path, f if isinstance(f, str) else f.decode()
+        ))
     )
 
 
@@ -113,7 +118,10 @@ class DistractingBackgroundEnv(control.Environment):
             self._video_paths = []
         else:
             if not dataset_videos:
-                dataset_videos = sorted(os.listdir(dataset_path))
+                dataset_videos = sorted(
+                    e if isinstance(e, str) else e.decode()
+                    for e in os.listdir(dataset_path)
+                )
             elif dataset_videos in ('train', 'training'):
                 dataset_videos = DAVIS17_TRAINING_VIDEOS
             elif dataset_videos in ('val', 'validation'):

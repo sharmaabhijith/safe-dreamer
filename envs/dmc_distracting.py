@@ -61,43 +61,50 @@ class DistractingControl(gym.Env):
         seed: int = 0,
     ):
         from distracting_control import suite as dc_suite
+        from distracting_control import suite_utils
 
         domain, task = name.rsplit("_", 1)
 
-        # Build per-distractor kwargs overrides so we can disable individual ones.
-        # When a distractor is disabled we pass scale=0 (no effect).
+        # Build per-distractor kwargs only for enabled distractors.
+        # We pass difficulty=None to suite.load and manually construct kwargs
+        # so that disabled distractors are fully skipped (not just scaled to 0).
+        scale = suite_utils.DIFFICULTY_SCALE[difficulty]
+        num_videos = suite_utils.DIFFICULTY_NUM_VIDEOS[difficulty]
+
         background_kwargs = None
         camera_kwargs = None
         color_kwargs = None
 
-        if not background:
-            background_kwargs = {"scale": 0.0}
-        if not camera:
-            camera_kwargs = {"scale": 0.0}
-        if not color:
-            color_kwargs = {"scale": 0.0}
+        if background:
+            if background_dataset_path is None:
+                raise ValueError(
+                    "background_dataset_path must be provided when background=True. "
+                    "Download DAVIS 2017 480p TrainVal and set background_dataset_path "
+                    "to the JPEGImages/480p directory."
+                )
+            background_kwargs = suite_utils.get_background_kwargs(
+                domain, num_videos, dynamic, background_dataset_path,
+                background_dataset_videos,
+            )
+        if camera:
+            camera_kwargs = suite_utils.get_camera_kwargs(domain, scale, dynamic)
+        if color:
+            color_kwargs = suite_utils.get_color_kwargs(scale, dynamic)
 
         dc_kwargs = dict(
             domain_name=domain,
             task_name=task,
-            difficulty=difficulty,
+            difficulty=None,  # we handle difficulty manually per distractor
             dynamic=dynamic,
-            background_ground_plane_alpha=0.0,  # full background replacement
             task_kwargs={"random": seed},
             pixels_only=False,  # keep proprioceptive observations
             render_kwargs={"width": size[1], "height": size[0]},
         )
+        if background_kwargs is not None:
+            dc_kwargs["background_kwargs"] = background_kwargs
         if background_dataset_path is not None:
             dc_kwargs["background_dataset_path"] = background_dataset_path
             dc_kwargs["background_dataset_videos"] = background_dataset_videos
-        elif background:
-            raise ValueError(
-                "background_dataset_path must be provided when background=True. "
-                "Download DAVIS 2017 480p TrainVal and set background_dataset_path "
-                "to the JPEGImages/480p directory."
-            )
-        if background_kwargs is not None:
-            dc_kwargs["background_kwargs"] = background_kwargs
         if camera_kwargs is not None:
             dc_kwargs["camera_kwargs"] = camera_kwargs
         if color_kwargs is not None:

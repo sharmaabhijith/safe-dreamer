@@ -111,6 +111,13 @@ class Dreamer(nn.Module):
                 self.prj = Projector(self.rssm.feat_size, self.embed_size)
             modules.update({"projector": self.prj})
             self.barlow_lambd = float(config.r2dreamer.lambd)
+            # Augmentation for invariant Barlow targets
+            r2_aug = config.r2dreamer.aug
+            self.r2_aug_enabled = bool(r2_aug.enabled)
+            if self.r2_aug_enabled:
+                self.aug_max_delta = float(r2_aug.max_delta)
+                self.aug_same_across_time = bool(r2_aug.same_across_time)
+                self.aug_bilinear = bool(r2_aug.bilinear)
         elif self.rep_loss == "dreamerpro":
             dpc = config.dreamer_pro
             self.warm_up = int(dpc.warm_up)
@@ -467,8 +474,22 @@ class Dreamer(nn.Module):
             # Flatten batch/time dims for a single cross-correlation matrix.
             # (B, T, F) -> (B*T, F)
             x1 = self.prj(feat[:, :].reshape(B * T, -1))
-            # (B, T, E) -> (B*T, E)
-            x2 = visual_embed.reshape(B * T, -1).detach()  # this detach is important
+
+            # Use augmented visual embedding as Barlow target for distractor invariance.
+            # The encoder sees a spatially shifted view; the RSSM latent (x1) must still
+            # match it, forcing the representation to be invariant to spatial perturbations
+            # (and by extension, background distractors that shift differently than the agent).
+            if self.r2_aug_enabled:
+                with torch.no_grad():
+                    data_aug = self._augment_images(data)
+                if self.use_multimodal_encoder and self.encoder._use_text_gate:
+                    visual_embed_aug, _ = self.encoder(data_aug, return_both=True)
+                else:
+                    visual_embed_aug = self.encoder(data_aug)
+                x2 = visual_embed_aug.reshape(B * T, -1).detach()
+            else:
+                # (B, T, E) -> (B*T, E)
+                x2 = visual_embed.reshape(B * T, -1).detach()  # this detach is important
 
             x1_norm = (x1 - x1.mean(0)) / (x1.std(0) + 1e-8)
             x2_norm = (x2 - x2.mean(0)) / (x2.std(0) + 1e-8)
@@ -657,6 +678,22 @@ class Dreamer(nn.Module):
         if "image" in data:
             data["image"] = to_f32(data["image"]) / 255.0
         return data
+
+    @torch.no_grad()
+    def _augment_images(self, data):
+        """Augment images with random spatial translation (no batch doubling)."""
+        data_aug = {k: v.clone() for k, v in data.items()}
+        # (B, T, H, W, C) -> (B, T, C, H, W)
+        image = data_aug["image"].permute(0, 1, 4, 2, 3)
+        data_aug["image"] = self.random_translate(
+            image,
+            self.aug_max_delta,
+            same_across_time=self.aug_same_across_time,
+            bilinear=self.aug_bilinear,
+        )
+        # (B, T, C, H, W) -> (B, T, H, W, C)
+        data_aug["image"] = data_aug["image"].permute(0, 1, 3, 4, 2)
+        return data_aug
 
     @torch.no_grad()
     def augment_data(self, data):

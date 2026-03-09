@@ -2,7 +2,7 @@
 # Inherits the same model/batch settings as dmc_vision; only the env changes.
 
 task: 'distract_walker_walk'    # prefix "distract_" triggers DistractingControl
-steps: 7.2e5
+steps: 1.01e6
 env_num: 16
 eval_episode_num: 10
 action_repeat: 2
@@ -18,15 +18,15 @@ size: [64, 64]
 # Difficulty: easy | medium | hard
 difficulty: 'easy'
 # Dynamic distractors (change per step) vs. static (fixed at reset)
-dynamic: true
+dynamic: false
 # Which distractor types to enable
 background: true
-camera: true
-color: true
+camera: false
+color: false
 # Path to the DAVIS 2017 480p JPEGImages directory.
 # Download: https://data.vision.ee.ethz.ch/csergi/share/davis/DAVIS-2017-trainval-480p.zip
 # Then set this to: /path/to/DAVIS/JPEGImages/480p
-background_dataset_path: ???
+background_dataset_path: DAVIS/JPEGImages/480p
 # Video split: train | val
 background_dataset_videos: 'train'
 
