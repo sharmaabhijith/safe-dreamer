@@ -9,13 +9,13 @@ from torch import nn
 from torch.amp import GradScaler, autocast
 from torch.optim.lr_scheduler import LambdaLR
 
-import networks
-import rssm
-import tools
-from networks import Projector, MLPProjector
-from optim import LaProp, clip_grad_agc_
-from tools import to_f32
-from multimodal_encoder import MultimodalEncoder, MultimodalEncoderConfig
+from world_model import networks
+from world_model import rssm
+from utils import tools
+from world_model.networks import Projector, MLPProjector
+from utils.optim import LaProp, clip_grad_agc_
+from utils.tools import to_f32
+from world_model.multimodal_encoder import MultimodalEncoder, MultimodalEncoderConfig
 
 
 class Dreamer(nn.Module):

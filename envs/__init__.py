@@ -30,7 +30,6 @@ def make_env(config, id):
 
         env = dmc.DeepMindControl(task, config.action_repeat, config.size, seed=config.seed + id)
         env = wrappers.NormalizeActions(env)
-        # Optional video background distractor
         video_dir = getattr(config, "video_dir", None)
         if video_dir:
             from envs.video_background import VideoBackground
@@ -52,37 +51,6 @@ def make_env(config, id):
             seed=config.seed + id,
         )
         env = wrappers.NormalizeActions(env)
-    elif suite == "atari":
-        import envs.atari as atari
-
-        env = atari.Atari(
-            task,
-            config.action_repeat,
-            config.size,
-            gray=config.gray,
-            noops=config.noops,
-            lives=config.lives,
-            sticky=config.sticky,
-            actions=config.actions,
-            length=config.time_limit,
-            pooling=config.pooling,
-            aggregate=config.aggregate,
-            resize=config.resize,
-            autostart=config.autostart,
-            clip_reward=config.clip_reward,
-            seed=config.seed + id,
-        )
-        env = wrappers.OneHotAction(env)
-    elif suite == "memorymaze":
-        from envs.memorymaze import MemoryMaze
-
-        env = MemoryMaze(task, seed=config.seed + id)
-        env = wrappers.OneHotAction(env)
-    elif suite == "crafter":
-        import envs.crafter as crafter
-
-        env = crafter.Crafter(task, config.size, seed=config.seed + id)
-        env = wrappers.OneHotAction(env)
     elif suite == "metaworld":
         import envs.metaworld as metaworld
 

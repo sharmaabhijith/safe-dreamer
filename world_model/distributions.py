@@ -2,7 +2,7 @@ import torch
 from torch import distributions as torchd
 from torch.nn import functional as F
 
-from tools import to_f32, to_i32
+from utils.tools import to_f32, to_i32
 
 
 def symlog(x):

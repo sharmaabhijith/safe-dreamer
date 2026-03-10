@@ -1,6 +1,8 @@
+import time
+
 import torch
 
-import tools
+from utils import tools
 
 
 class OnlineTrainer:
@@ -108,6 +110,8 @@ class OnlineTrainer:
         video_cache = []
         step = self.replay_buffer.count() * self._action_repeat
         update_count = 0
+        self._t0 = time.time()
+        self._last_log_step = step
         # (B,)
         done = torch.ones(envs.env_num, dtype=torch.bool, device=agent.device)
         returns = torch.zeros(envs.env_num, dtype=torch.float32, device=agent.device)
@@ -190,3 +194,18 @@ class OnlineTrainer:
                         for name, param in agent._named_params.items():
                             self.logger.histogram(name, tools.to_np(param))
                     self.logger.write(step, fps=True)
+                    # Print progress to stdout (visible in SLURM logs)
+                    elapsed = time.time() - self._t0
+                    sps = (step - self._last_log_step) / max(elapsed - getattr(self, '_last_log_time', 0), 1e-6)
+                    total_sps = step / max(elapsed, 1e-6)
+                    score_str = f"score={returns.mean().item():.1f}" if returns.any() else ""
+                    print(
+                        f"[Step {step:>8d}/{self.steps}]"
+                        f"  updates={update_count}"
+                        f"  sps={total_sps:.0f}"
+                        f"  elapsed={elapsed/60:.1f}m"
+                        f"  buf={self.replay_buffer.count()}"
+                        f"  {score_str}"
+                    )
+                    self._last_log_step = step
+                    self._last_log_time = elapsed

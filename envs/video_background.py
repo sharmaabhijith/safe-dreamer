@@ -45,7 +45,7 @@ class VideoBackground(gym.Wrapper):
         if not self._video_paths:
             raise FileNotFoundError(
                 f"No video files found in '{video_dir}'. "
-                "Run download_videos.py first or provide a directory with .mp4 files."
+                "Provide a directory containing .mp4 video files."
             )
         self._frames = None
         self._frame_idx = 0

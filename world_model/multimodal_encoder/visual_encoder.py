@@ -8,7 +8,7 @@ between normalization and activation.
 import torch
 import torch.nn as nn
 
-from networks import Conv2dSamePad, RMSNorm2D
+from world_model.networks import Conv2dSamePad, RMSNorm2D
 
 import torch.nn.init as init
 

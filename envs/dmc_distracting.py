@@ -60,8 +60,8 @@ class DistractingControl(gym.Env):
         camera_id: int = None,
         seed: int = 0,
     ):
-        from distracting_control import suite as dc_suite
-        from distracting_control import suite_utils
+        from envs.distraction import suite as dc_suite
+        from envs.distraction import suite_utils
 
         domain, task = name.rsplit("_", 1)
 

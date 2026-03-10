@@ -2,9 +2,9 @@ import torch
 from torch import distributions as torchd
 from torch import nn
 
-import distributions as dists
-from networks import BlockLinear, LambdaLayer
-from tools import rpad, weight_init_
+from world_model import distributions as dists
+from world_model.networks import BlockLinear, LambdaLayer
+from utils.tools import rpad, weight_init_
 
 
 class Deter(nn.Module):

@@ -1,0 +1,91 @@
+# =============================================================================
+# DMC (distracting) + CNN encoder
+#
+# Distracting Control Suite tasks with a pure CNN visual encoder.
+# Visual distractors (background, camera, color) test robustness of the
+# learned representations without any text guidance.
+# =============================================================================
+
+defaults:
+  - /base
+  - override hydra/job_logging: disabled
+  - _self_
+
+# ---- Environment -------------------------------------------------------------
+env:
+  # Prefix "distract_" activates the DistractingControl wrapper.
+  task: 'distract_walker_walk'
+  # Distracting tasks benefit from longer training due to harder visual inputs.
+  steps: 1.01e6
+
+  # ---- Distractor settings ---------------------------------------------------
+  # Difficulty level: controls the magnitude of each distractor type.
+  #   "easy"   — mild perturbations, good for initial experiments
+  #   "medium" — moderate perturbations
+  #   "hard"   — strong perturbations, challenging even for robust methods
+  difficulty: 'easy'
+  # When True, distractors change every environment step (harder).
+  # When False, distractors are sampled once per episode reset (easier).
+  dynamic: false
+  # Enable DAVIS 2017 video backgrounds as distractors.
+  background: true
+  # Enable random camera pose jitter.
+  camera: false
+  # Enable random body color changes.
+  color: false
+  # Path to DAVIS 2017 480p JPEGImages directory for background distractors.
+  background_dataset_path: /nfs-stor/salem.lahlou/DAVIS/JPEGImages/480p
+  # Which DAVIS split to use: 'train' or 'val'.
+  background_dataset_videos: 'train'
+
+# ---- Model -------------------------------------------------------------------
+model:
+  # Pure CNN encoder — no text conditioning.
+  use_multimodal_encoder: False
+
+  # ---- Optimization (tune per experiment) ------------------------------------
+  # Learning rate for world model + actor-critic.
+  # Too high causes instability; too low slows convergence.
+  lr: 4e-5
+  # Adaptive gradient clipping threshold.
+  # Clips gradients whose norm exceeds agc * param_norm. Prevents training spikes.
+  agc: 0.3
+
+  # ---- Policy ----------------------------------------------------------------
+  # Entropy regularization for the actor.
+  # Higher = more exploration but may prevent convergence to optimal policy.
+  act_entropy: 3e-4
+  # Free nats for KL divergence. Prevents posterior collapse by ignoring KL
+  # below this threshold. Higher = less KL penalty = weaker dynamics learning.
+  kl_free: 1.0
+
+  # ---- Loss scales -----------------------------------------------------------
+  # Relative weights for each loss component. Adjusting these trades off
+  # reconstruction quality vs. dynamics accuracy vs. policy performance.
+  loss_scales:
+    barlow: 0.05        # Barlow Twins contrastive (only when rep_loss=r2dreamer)
+    infonce: 1.0        # InfoNCE contrastive (only when rep_loss=infonce)
+    recon: 1.0          # Image reconstruction — higher = sharper images
+    rew: 1.0            # Reward prediction — critical for task performance
+    con: 1.0            # Continuation (discount) prediction
+    dyn: 1.0            # Dynamics (transition model) — higher = better forward predictions
+    rep: 0.1            # Representation (encoder) — balances encoder vs. dynamics gradients
+    policy: 1.0         # Actor loss weight
+    value: 1.0          # Critic loss weight
+    repval: 0.3         # Representation-value alignment
+    swav: 1.0           # SwaV loss (only when rep_loss=dreamerpro)
+    temp: 1.0           # Temperature scaling
+    norm: 1.0           # Normalization loss
+
+  # Enable augmentation to improve robustness against visual distractors.
+  # Random-shift augmentation creates contrastive views that encourage
+  # the encoder to ignore background noise.
+  r2dreamer:
+    aug:
+      enabled: true
+      # Maximum pixel shift for random-shift augmentation.
+      max_delta: 3.0
+      # Apply the same shift across all time steps (preserves temporal structure).
+      same_across_time: True
+      # Bilinear interpolation for sub-pixel shifts (smoother augmentations).
+      bilinear: True

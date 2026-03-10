@@ -26,10 +26,10 @@ except ImportError:
     _dm_suite = None
     _pixels_wrapper = None
 
-from distracting_control import background
-from distracting_control import camera
-from distracting_control import color
-from distracting_control import suite_utils
+from envs.distraction import background
+from envs.distraction import camera
+from envs.distraction import color
+from envs.distraction import suite_utils
 
 
 def is_available():

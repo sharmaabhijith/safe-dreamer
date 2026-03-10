@@ -4,11 +4,10 @@ Reads a config listing multiple checkpoints and evaluates each in two
 conditions (clean and distractor background). Results are logged side-by-side
 in TensorBoard for easy comparison.
 
-All settings are specified in the config file (default: configs/eval_distractor.yaml).
+All settings are specified in a YAML config file.
 
 Usage:
-    python eval.py
-    python eval.py --config configs/eval_distractor.yaml
+    python eval.py --config configs/eval.yaml
 
     # View results:
     tensorboard --logdir eval_results/
@@ -25,7 +24,6 @@ os.environ["HF_HUB_CACHE"] = os.path.join(_hf_cache, "hub")
 os.environ["TRANSFORMERS_CACHE"] = os.path.join(_hf_cache, "hub")
 
 import argparse
-import sys
 import warnings
 
 import numpy as np
@@ -34,12 +32,11 @@ import yaml
 from omegaconf import OmegaConf
 from torch.utils.tensorboard import SummaryWriter
 
-sys.path.insert(0, str(pathlib.Path(__file__).parent))
 warnings.filterwarnings("ignore")
 torch.set_float32_matmul_precision("high")
 
-import tools
-from dreamer import Dreamer
+from utils import tools
+from world_model.dreamer import Dreamer
 from envs import make_eval_envs
 
 
@@ -92,8 +89,10 @@ def build_agent(config, obs_space, act_space, ckpt, device):
 
     if model_cfg.use_multimodal_encoder:
         task_name = config.env.task
-        if task_name.startswith("dmc_"):
-            task_name = task_name[4:]
+        for prefix in ("distract_", "dmc_"):
+            if task_name.startswith(prefix):
+                task_name = task_name[len(prefix):]
+                break
         agent.set_task_name(task_name)
 
     agent.load_state_dict(ckpt["agent_state_dict"])
@@ -339,7 +338,7 @@ def main():
     parser = argparse.ArgumentParser(
         description="Evaluate trained models with distractor backgrounds"
     )
-    parser.add_argument("--config", type=str, default="configs/eval_distractor.yaml",
+    parser.add_argument("--config", type=str, default="configs/eval.yaml",
                         help="Path to evaluation config file")
     args = parser.parse_args()
 

@@ -133,3 +133,5 @@ dmypy.json
 
 DAVIS
 eval_results
+
+slurm_logs

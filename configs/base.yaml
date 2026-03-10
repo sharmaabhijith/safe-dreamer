@@ -1,0 +1,423 @@
+# =============================================================================
+# Base configuration — shared hyperparameters for all experiment variants.
+#
+# This file is NOT meant to be used directly. Instead, use one of the four
+# experiment configs that inherit from it:
+#   - dmc_cnn.yaml                (DMC + CNN encoder)
+#   - dmc_multimodal.yaml         (DMC + multimodal FiLM encoder)
+#   - dmc_distractor_cnn.yaml     (DMC distracting + CNN encoder)
+#   - dmc_distractor_multimodal.yaml (DMC distracting + multimodal FiLM encoder)
+# =============================================================================
+
+# ---- Global settings --------------------------------------------------------
+seed: 0
+# When True, enables full deterministic execution (slower but reproducible).
+deterministic_run: False
+# CUDA device for training. Remapped to cuda:0 at runtime under SLURM.
+device: 'cuda:0'
+
+# ---- Logging -----------------------------------------------------------------
+logdir: logdir/${now:%Y-%m-%d}/${now:%H-%M-%S}
+
+hydra:
+  run:
+    dir: ${logdir}
+
+# ---- Data / replay buffer ----------------------------------------------------
+# Mini-batch size for world model + actor-critic updates.
+# Larger values reduce gradient variance but increase GPU memory.
+batch_size: 8
+# Number of consecutive time steps per sampled sequence.
+# Longer sequences improve temporal credit assignment but cost more memory.
+batch_length: 64
+
+buffer:
+  batch_size: ${batch_size}
+  batch_length: ${batch_length}
+  # Maximum replay buffer capacity (in transitions).
+  # Larger buffers retain more diverse experience but use more RAM.
+  max_size: 5e5
+  device: ${device}
+  # Store transitions on CPU to save GPU memory; they are moved to GPU on sample.
+  storage_device: 'cpu'
+
+# ---- Trainer -----------------------------------------------------------------
+trainer:
+  # Total environment steps to train for. Overridden per-experiment.
+  steps: ${env.steps}
+  # Number of update steps to run before any environment interaction.
+  # Useful for pre-filling the replay buffer with random data first.
+  pretrain: 0
+  # Evaluate the policy every N environment steps.
+  eval_every: 1e4
+  # Number of episodes per evaluation round.
+  eval_episode_num: ${env.eval_episode_num}
+  batch_size: ${batch_size}
+  batch_length: ${batch_length}
+  # Ratio of gradient updates to environment steps collected.
+  # Higher values = more sample-efficient but slower wall-clock training.
+  train_ratio: ${env.train_ratio}
+  # Log open-loop video predictions during training (expensive).
+  video_pred_log: False
+  # Log parameter histograms to TensorBoard (expensive).
+  params_hist_log: False
+  # Log training metrics every N environment steps.
+  update_log_every: 5e3
+  # Repeat each action for N environment steps before re-querying the policy.
+  # Reduces decision frequency and speeds up training on continuous tasks.
+  action_repeat: ${env.action_repeat}
+
+# ==============================================================================
+# Environment defaults (overridden by each experiment config)
+# ==============================================================================
+env:
+  # Task identifier. Format: "suite_taskname" (e.g. dmc_walker_walk).
+  task: 'dmc_walker_walk'
+  # Total environment steps for the experiment.
+  steps: 7.2e5
+  # Number of parallel training environments (vectorized).
+  # More envs = faster data collection but higher CPU/memory usage.
+  env_num: 16
+  # Number of evaluation episodes per eval round.
+  eval_episode_num: 10
+  # Repeat each action N times in the environment.
+  # Higher values effectively increase the control horizon per decision.
+  action_repeat: 2
+  # Gradient updates per environment step.
+  # Higher values improve sample efficiency at the cost of wall-clock time.
+  train_ratio: 512
+  # Maximum episode length (before action repeat).
+  time_limit: 1000
+  seed: ${seed}
+  device: ${device}
+  # Observation image resolution [H, W].
+  size: [64, 64]
+  # Regex patterns selecting which observation keys go to MLP vs CNN encoders.
+  # '$^' matches nothing (disabled); 'image' matches the image observation.
+  encoder:
+    mlp_keys: '$^'
+    cnn_keys: 'image'
+  decoder:
+    mlp_keys: '$^'
+    cnn_keys: 'image'
+
+# ==============================================================================
+# Model defaults
+# ==============================================================================
+model:
+  # ---- Architecture sizing ---------------------------------------------------
+  # Deterministic state size in the RSSM. Larger = more capacity for long-horizon
+  # memory but increases compute and memory quadratically in attention-based variants.
+  deter: 3072
+  # Hidden layer size in the RSSM GRU. Should be proportional to deter.
+  hidden: 384
+  # Number of discrete categories for the stochastic state.
+  # More categories = finer-grained belief but slower KL computation.
+  discrete: 24
+  # Base channel count for the CNN encoder/decoder.
+  # Multiplied by mults at each layer. Directly controls model parameter count.
+  depth: 24
+  # Hidden units for all MLP heads (reward, cont, actor, critic).
+  units: 384
+  # Activation function for all networks. SiLU (Swish) generally outperforms ReLU.
+  act: 'SiLU'
+  # Whether to use layer normalization. Stabilizes training, especially at scale.
+  norm: True
+
+  # ---- Optimization ----------------------------------------------------------
+  # These defaults are overridden per-experiment config for independent tuning.
+  # Learning rate for the world model + actor-critic.
+  # Too high causes instability; too low slows convergence.
+  lr: 4e-5
+  # Adaptive gradient clipping threshold.
+  # Clips gradients whose norm exceeds agc * param_norm. Prevents training spikes.
+  agc: 0.3
+  # Minimum probability floor for categorical distributions (numerical stability).
+  pmin: 1e-3
+  # Epsilon for numerical stability in log/division operations.
+  eps: 1e-20
+  # Adam optimizer momentum coefficients.
+  beta1: 0.9
+  beta2: 0.999
+  # Learning rate warmup steps. Prevents early instability from large gradients.
+  warmup: 1000
+  # How often to update the slow (target) critic network (in gradient steps).
+  slow_target_update: 1
+  # Polyak averaging coefficient for the slow target critic.
+  # Smaller = slower target updates = more stable value estimates.
+  slow_target_fraction: 0.02
+
+  # ---- Policy & imagination --------------------------------------------------
+  # Entropy regularization coefficient for the actor.
+  # Higher values encourage exploration but may prevent convergence to optimal policy.
+  act_entropy: 3e-4
+  # Free nats for the KL divergence term.
+  # Prevents posterior collapse by ignoring KL below this threshold.
+  kl_free: 1.0
+  # Number of steps to imagine forward in the world model for policy optimization.
+  # Longer horizons give better credit assignment but accumulate model error.
+  imag_horizon: 15
+  # Discount horizon for computing lambda-returns. Controls effective discount factor.
+  horizon: 333
+  # GAE lambda for advantage estimation.
+  # Higher values reduce bias but increase variance in return estimates.
+  lamb: 0.95
+  # Use torch.compile for JIT optimization (faster but slower first step).
+  compile: True
+  # Log gradient norms per module (debugging only; adds overhead).
+  log_grads: False
+  device: ${device}
+
+  # ---- Representation learning -----------------------------------------------
+  # Which contrastive/auxiliary loss to use for learning representations.
+  #   "r2dreamer"   — Barlow Twins redundancy reduction (default, robust)
+  #   "dreamer"     — Vanilla DreamerV3 (reconstruction only)
+  #   "infonce"     — InfoNCE contrastive loss
+  #   "dreamerpro"  — Prototype-based contrastive (SwaV-style)
+  rep_loss: "r2dreamer"
+
+  # Whether to use the FiLM-conditioned multimodal encoder (CLIP text + CNN vision).
+  # When False, uses a standard CNN encoder.
+  use_multimodal_encoder: False
+
+  # ---- Loss scales (defaults, overridden per-experiment) ---------------------
+  # Relative weights for each loss component. Adjusting these trades off
+  # reconstruction quality vs. dynamics accuracy vs. policy performance.
+  loss_scales:
+    barlow: 0.05        # Barlow Twins contrastive (only when rep_loss=r2dreamer)
+    infonce: 1.0        # InfoNCE contrastive (only when rep_loss=infonce)
+    recon: 1.0          # Image reconstruction — higher = sharper images
+    rew: 1.0            # Reward prediction — critical for task performance
+    con: 1.0            # Continuation (discount) prediction
+    dyn: 1.0            # Dynamics (transition model) — higher = better forward predictions
+    rep: 0.1            # Representation (encoder) — balances encoder vs. dynamics gradients
+    policy: 1.0         # Actor loss weight
+    value: 1.0          # Critic loss weight
+    repval: 0.3         # Representation-value alignment
+    swav: 1.0           # SwaV loss (only when rep_loss=dreamerpro)
+    temp: 1.0           # Temperature scaling
+    norm: 1.0           # Normalization loss
+
+  # ---- R2-Dreamer (Barlow Twins) config --------------------------------------
+  r2dreamer:
+    # Redundancy reduction coefficient. Controls off-diagonal penalty strength.
+    # Higher = less redundancy in representations but may lose useful correlations.
+    lambd: 5e-4
+    aug:
+      # Whether to apply data augmentation for contrastive views.
+      # Enable for distractor environments to improve robustness.
+      enabled: false
+      # Maximum pixel shift for random-shift augmentation.
+      max_delta: 3.0
+      # Apply the same augmentation across all time steps in a sequence.
+      same_across_time: True
+      # Use bilinear interpolation for sub-pixel shifts (smoother).
+      bilinear: True
+
+  # ---- DreamerPro (prototype-based) config -----------------------------------
+  dreamer_pro:
+    # Warmup epochs before activating prototype loss.
+    warm_up: 1
+    # Number of learnable prototypes for SwaV-style clustering.
+    num_prototypes: 2500
+    # Dimensionality of each prototype vector.
+    proto_dim: 32
+    # Softmax temperature for cluster assignment. Lower = sharper assignments.
+    temperature: 0.1
+    # Sinkhorn-Knopp epsilon for balanced cluster assignment.
+    sinkhorn_eps: 0.05
+    # Number of Sinkhorn-Knopp iterations. More = closer to exact assignment.
+    sinkhorn_iters: 3
+    # How often to update the EMA encoder (in gradient steps).
+    ema_update_every: 1
+    # EMA momentum. Lower = faster target encoder updates.
+    ema_update_fraction: 0.05
+    # Freeze prototypes for this many steps at the start of training.
+    freeze_prototypes_iters: 10000
+    aug:
+      max_delta: 3.0
+      same_across_time: True
+      bilinear: True
+
+  # ---- RSSM (Recurrent State Space Model) ------------------------------------
+  rssm:
+    # Stochastic state dimension (per discrete category).
+    stoch: 32
+    # Deterministic state size (GRU hidden state). Controls memory capacity.
+    deter: ${model.deter}
+    # Hidden units in the RSSM's internal MLPs.
+    hidden: ${model.hidden}
+    # Number of discrete categories for the stochastic latent.
+    discrete: ${model.discrete}
+    # Number of MLP layers for image embedding → posterior.
+    img_layers: 2
+    # Number of MLP layers for observation encoding.
+    obs_layers: 1
+    # Number of MLP layers for dynamics (prior) prediction.
+    dyn_layers: 1
+    # Number of parallel blocks in the RSSM (for block-diagonal structure).
+    blocks: 8
+    act: ${model.act}
+    norm: ${model.norm}
+    # Uniform mixing ratio for categorical distributions.
+    # Small values add noise to prevent mode collapse.
+    unimix_ratio: 0.01
+    # How to initialize the RSSM state. 'learned' trains an initial state.
+    initial: 'learned'
+    device: ${device}
+
+  # ---- Encoder ---------------------------------------------------------------
+  encoder:
+    # Regex patterns for selecting observation keys routed to MLP vs CNN.
+    mlp_keys: ${env.encoder.mlp_keys}
+    cnn_keys: ${env.encoder.cnn_keys}
+    mlp:
+      shape: null
+      # Number of MLP layers for proprioceptive inputs.
+      layers: 3
+      units: ${model.units}
+      act: ${model.act}
+      norm: ${model.norm}
+      device: ${device}
+      outscale: null
+      # Apply symlog transform to inputs. Helps with large-magnitude proprioception.
+      symlog_inputs: True
+      name: 'mlp_encoder'
+    cnn:
+      act: ${model.act}
+      norm: ${model.norm}
+      # Convolutional kernel size. Larger = wider receptive field per layer.
+      kernel_size: 5
+      # Minimum spatial resolution before stopping downsampling.
+      minres: 4
+      # Base channel count (multiplied by mults per layer).
+      depth: ${model.depth}
+      # Channel multipliers per convolutional layer.
+      mults: [2, 3, 4, 4]
+
+  # ---- Decoder ---------------------------------------------------------------
+  decoder:
+    mlp_keys: ${env.decoder.mlp_keys}
+    cnn_keys: ${env.decoder.cnn_keys}
+    mlp_dist:
+      # Distribution for MLP decoder outputs.
+      name: 'symlog_mse'
+    cnn_dist:
+      # Distribution for CNN decoder outputs.
+      name: 'mse'
+    mlp:
+      shape: null
+      layers: 3
+      units: ${model.units}
+      act: ${model.act}
+      norm: ${model.norm}
+      dist:
+        name: 'identity'
+      device: ${device}
+      outscale: 1.0
+      symlog_inputs: False
+      name: 'mlp_decoder'
+    cnn:
+      depth: ${model.depth}
+      units: ${model.units}
+      # Bottleneck spatial dimension for the transposed-conv decoder.
+      bspace: 8
+      mults: [2, 3, 4, 4]
+      act: ${model.act}
+      norm: ${model.norm}
+      kernel_size: 5
+      minres: 4
+      outscale: 1.0
+
+  # ---- Reward head -----------------------------------------------------------
+  reward:
+    # Two-hot symexp encoding with 255 bins for reward prediction.
+    # Captures multi-modal reward distributions better than scalar MSE.
+    shape: [255,]
+    layers: 1
+    units: ${model.units}
+    act: ${model.act}
+    norm: ${model.norm}
+    dist:
+      name: 'symexp_twohot'
+      bin_num: 255
+    outscale: 0.0
+    device: ${device}
+    symlog_inputs: False
+    name: 'reward'
+
+  # ---- Continuation (discount) head ------------------------------------------
+  cont:
+    # Binary prediction of episode continuation (1 - done).
+    shape: [1,]
+    layers: 1
+    units: ${model.units}
+    act: ${model.act}
+    norm: ${model.norm}
+    dist:
+      name: 'binary'
+    outscale: 1.0
+    device: ${device}
+    symlog_inputs: False
+    name: 'cont'
+
+  # ---- Actor (policy) --------------------------------------------------------
+  actor:
+    shape: null  # Set dynamically based on action space
+    layers: 3
+    units: ${model.units}
+    act: ${model.act}
+    norm: ${model.norm}
+    device: ${device}
+    dist:
+      # Continuous action distribution.
+      cont:
+        name: 'bounded_normal'
+        # Minimum action standard deviation. Prevents policy collapse.
+        min_std: 0.1
+        # Maximum action standard deviation. Caps exploration noise.
+        max_std: 1.0
+      # Discrete action distribution.
+      disc:
+        name: 'onehot'
+        unimix_ratio: 0.01
+      # Multi-discrete action distribution.
+      multi_disc:
+        name: 'multi_onehot'
+        unimix_ratio: 0.01
+    # Small output scale to start with near-uniform policy.
+    outscale: 0.01
+    symlog_inputs: False
+    name: 'actor'
+
+  # ---- Critic (value function) -----------------------------------------------
+  critic:
+    # Two-hot symexp encoding matching the reward head for value prediction.
+    shape: [255,]
+    layers: 3
+    units: ${model.units}
+    act: ${model.act}
+    norm: ${model.norm}
+    device: ${device}
+    dist:
+      name: 'symexp_twohot'
+      bin_num: 255
+    outscale: 0.0
+    symlog_inputs: False
+    name: 'value'
+
+  # ---- Multimodal encoder (only used when use_multimodal_encoder=True) -------
+  multimodal_encoder:
+    # Dimension of the text context vector after pooling + projection.
+    # Larger = more expressive text conditioning but heavier FiLM layers.
+    text_context_dim: 256
+    # Frozen CLIP model for text encoding. ViT-B/32 is fast and sufficient.
+    clip_model: "openai/clip-vit-base-patch32"
+    # Maximum token length for CLIP tokenizer.
+    max_text_length: 77
+    # Whether to mix text context into the RSSM input via a learned gate.
+    # When True, the RSSM receives a weighted combination of visual + text features.
+    use_text_gate: True
+    # Initial bias for the text gate sigmoid.
+    # Negative values start with mostly visual input (sigmoid(-2) ~ 0.12 text).
+    gate_init_bias: -2

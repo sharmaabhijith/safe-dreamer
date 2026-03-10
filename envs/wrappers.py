@@ -2,7 +2,7 @@ import gymnasium as gym
 import numpy as np
 import torch
 
-import tools
+from utils import tools
 
 
 class TimeLimit(gym.Wrapper):

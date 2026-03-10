@@ -6,8 +6,8 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-import distributions as dists
-from tools import weight_init_
+from world_model import distributions as dists
+from utils.tools import weight_init_
 
 
 class LambdaLayer(nn.Module):

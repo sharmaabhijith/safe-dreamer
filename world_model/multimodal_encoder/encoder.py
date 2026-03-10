@@ -12,12 +12,26 @@ When called with return_both=True, returns (visual_embed, rssm_embed).
 import torch
 import torch.nn as nn
 
-from tools import weight_init_
+from utils.tools import weight_init_
 
-from .config import MultimodalEncoderConfig
 from .task_descriptions import get_task_texts, sample_task_text
 from .text_encoder import TextContextEncoder, TextGate
 from .visual_encoder import FiLMConditionedVisualEncoder
+from dataclasses import dataclass
+
+
+@dataclass
+class MultimodalEncoderConfig:
+    """Configuration for the FiLM-conditioned multimodal encoder."""
+
+    # Text context
+    text_context_dim: int = 256
+    clip_model: str = "openai/clip-vit-base-patch32"
+    max_text_length: int = 77
+
+    # Text gate
+    use_text_gate: bool = True
+    gate_init_bias: float = -3.0  # sigmoid(-3) ≈ 0.047 text influence at init
 
 
 class MultimodalEncoder(nn.Module):
