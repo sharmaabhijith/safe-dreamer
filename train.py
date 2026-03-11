@@ -54,6 +54,8 @@ def _setup_gpu(config):
 
 @hydra.main(version_base=None, config_path="configs", config_name="dmc/cnn")
 def main(config):
+    from omegaconf import OmegaConf
+    OmegaConf.set_struct(config, False)
     _setup_gpu(config)
     tools.set_seed_everywhere(config.seed)
     if config.deterministic_run:

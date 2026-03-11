@@ -8,8 +8,7 @@
 # =============================================================================
 
 defaults:
-  - /base
-  - override hydra/job_logging: disabled
+  - /base@_global_
   - _self_
 
 # ---- Environment -------------------------------------------------------------
@@ -50,7 +49,7 @@ model:
   lr: 4e-5
   # Adaptive gradient clipping threshold.
   # Clips gradients whose norm exceeds agc * param_norm. Prevents training spikes.
-  agc: 0.3
+  agc: 0.15
 
   # ---- Policy ----------------------------------------------------------------
   # Entropy regularization for the actor.
@@ -58,7 +57,7 @@ model:
   act_entropy: 3e-4
   # Free nats for KL divergence. Prevents posterior collapse by ignoring KL
   # below this threshold. Higher = less KL penalty = weaker dynamics learning.
-  kl_free: 1.0
+  kl_free: 2.0
 
   # ---- Loss scales -----------------------------------------------------------
   # Relative weights for each loss component. Adjusting these trades off
@@ -69,11 +68,11 @@ model:
     recon: 1.0          # Image reconstruction — higher = sharper images
     rew: 1.0            # Reward prediction — critical for task performance
     con: 1.0            # Continuation (discount) prediction
-    dyn: 1.0            # Dynamics (transition model) — higher = better forward predictions
+    dyn: 0.5            # Dynamics (transition model) — higher = better forward predictions
     rep: 0.1            # Representation (encoder) — balances encoder vs. dynamics gradients
     policy: 1.0         # Actor loss weight
     value: 1.0          # Critic loss weight
-    repval: 0.3         # Representation-value alignment
+    repval: 0.2         # Representation-value alignment
     swav: 1.0           # SwaV loss (only when rep_loss=dreamerpro)
     temp: 1.0           # Temperature scaling
     norm: 1.0           # Normalization loss

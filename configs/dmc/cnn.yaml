@@ -6,15 +6,14 @@
 # =============================================================================
 
 defaults:
-  - /base
-  - override hydra/job_logging: disabled
+  - /base@_global_
   - _self_
 
 # ---- Environment -------------------------------------------------------------
 env:
   task: 'dmc_walker_walk'
   # Standard DMC needs fewer steps than distracting variants.
-  steps: 7.2e5
+  steps: 1.01e6
 
 # ---- Model -------------------------------------------------------------------
 model:

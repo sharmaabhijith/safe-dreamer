@@ -1,14 +1,14 @@
 #!/bin/bash
 #SBATCH --job-name=dmc-dist-mm
 #SBATCH --account=cscc-users
-#SBATCH --partition=long
+#SBATCH --partition=cscc-gpu-p
 #SBATCH --qos=cscc-gpu-qos
 #SBATCH --gres=gpu:1
 #SBATCH --time=24:00:00
-#SBATCH --output=slurm_logs/%j_output.txt
-#SBATCH --error=slurm_logs/%j_error.txt
+#SBATCH --output=slurm_logs/%j_dmc-dist-mm-o.txt
+#SBATCH --error=slurm_logs/%j_dmc-dist-mm-e.txt
 
 mkdir -p slurm_logs
-source "$(dirname "$0")/../setup_env.sh"
+source "${SLURM_SUBMIT_DIR}/scripts/setup_env.sh"
 
-python -u train.py --config-name dmc/distractor_multimodal device=cuda:0
+python -u train.py --config-name dmc/distractor_multimodal

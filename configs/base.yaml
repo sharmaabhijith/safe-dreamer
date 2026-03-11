@@ -22,6 +22,9 @@ logdir: logdir/${now:%Y-%m-%d}/${now:%H-%M-%S}
 hydra:
   run:
     dir: ${logdir}
+  job_logging:
+    root:
+      level: WARNING
 
 # ---- Data / replay buffer ----------------------------------------------------
 # Mini-batch size for world model + actor-critic updates.
