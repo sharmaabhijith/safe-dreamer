@@ -20,6 +20,7 @@ Select the experiment config via Hydra's --config-name flag:
 
 import atexit
 import pathlib
+import sys
 import os
 import warnings
 
@@ -33,23 +34,48 @@ from envs import make_envs
 from utils.trainer import OnlineTrainer
 
 warnings.filterwarnings("ignore")
+sys.path.append(str(pathlib.Path(__file__).parent))
 torch.set_float32_matmul_precision("high")
 
 
 def _setup_gpu(config):
-    """Ensure MuJoCo uses EGL on the same GPU as PyTorch.
+    """Restrict CUDA and MuJoCo EGL to the same physical GPU.
 
-    When running under SLURM, CUDA_VISIBLE_DEVICES is already set by the
-    scheduler — do NOT overwrite it.  We only need to point MuJoCo's EGL
-    renderer at device 0 (the first *visible* GPU).
+    Two modes of operation:
+      1. **Local / Hyperstack**: Parses the GPU index from config.device
+         (e.g. 'cuda:3'), sets CUDA_VISIBLE_DEVICES to that physical GPU,
+         points MuJoCo EGL at it, and remaps config.device to 'cuda:0'.
+      2. **SLURM**: The scheduler already sets CUDA_VISIBLE_DEVICES. We
+         respect that assignment and simply use 'cuda:0' (the first — and
+         usually only — visible GPU).
+
+    In both cases the buffer storage_device is aligned to the training
+    device so that no cross-device transfers slow down training.
     """
     from omegaconf import OmegaConf
 
     device = config.device
+    on_slurm = "SLURM_JOB_ID" in os.environ
+
     if device.startswith("cuda"):
-        os.environ.setdefault("MUJOCO_GL", "egl")
-        os.environ.setdefault("MUJOCO_EGL_DEVICE_ID", "0")
+        if on_slurm:
+            # SLURM already restricts visible GPUs — do not override.
+            # Determine the first visible GPU for MuJoCo EGL (physical ID).
+            cvd = os.environ.get("CUDA_VISIBLE_DEVICES", "0")
+            first_gpu = cvd.split(",")[0]
+            os.environ.setdefault("MUJOCO_GL", "egl")
+            os.environ["MUJOCO_EGL_DEVICE_ID"] = first_gpu
+        else:
+            # Local: pick the GPU from the config and expose only that one.
+            gpu_id = device.split(":")[-1] if ":" in device else "0"
+            os.environ["CUDA_VISIBLE_DEVICES"] = gpu_id
+            os.environ.setdefault("MUJOCO_GL", "egl")
+            os.environ["MUJOCO_EGL_DEVICE_ID"] = gpu_id
+
+        # After restricting visibility, cuda:0 is the only device.
         OmegaConf.update(config, "device", "cuda:0")
+        # Align buffer storage to the same GPU to avoid cross-device overhead.
+        OmegaConf.update(config, "buffer.storage_device", "cuda:0")
 
 
 @hydra.main(version_base=None, config_path="configs", config_name="dmc/cnn")

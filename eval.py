@@ -41,12 +41,23 @@ from envs import make_eval_envs
 
 
 def _setup_gpu(device_str):
-    """Restrict CUDA to a single physical GPU, matching train.py behavior."""
+    """Restrict CUDA to a single physical GPU, matching train.py behavior.
+
+    On SLURM the scheduler already sets CUDA_VISIBLE_DEVICES, so we just
+    read the first visible GPU for MuJoCo EGL and use cuda:0.
+    """
     if device_str.startswith("cuda"):
-        gpu_id = device_str.split(":")[-1] if ":" in device_str else "0"
-        os.environ["CUDA_VISIBLE_DEVICES"] = gpu_id
-        os.environ.setdefault("MUJOCO_GL", "egl")
-        os.environ["MUJOCO_EGL_DEVICE_ID"] = gpu_id
+        on_slurm = "SLURM_JOB_ID" in os.environ
+        if on_slurm:
+            cvd = os.environ.get("CUDA_VISIBLE_DEVICES", "0")
+            first_gpu = cvd.split(",")[0]
+            os.environ.setdefault("MUJOCO_GL", "egl")
+            os.environ["MUJOCO_EGL_DEVICE_ID"] = first_gpu
+        else:
+            gpu_id = device_str.split(":")[-1] if ":" in device_str else "0"
+            os.environ["CUDA_VISIBLE_DEVICES"] = gpu_id
+            os.environ.setdefault("MUJOCO_GL", "egl")
+            os.environ["MUJOCO_EGL_DEVICE_ID"] = gpu_id
         return "cuda:0"
     return device_str
 

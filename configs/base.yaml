@@ -13,7 +13,8 @@
 seed: 0
 # When True, enables full deterministic execution (slower but reproducible).
 deterministic_run: False
-# CUDA device for training. Remapped to cuda:0 at runtime under SLURM.
+# CUDA device for training. Pass device=cuda:N on the CLI to pick a GPU.
+# Under SLURM this is ignored — the scheduler sets CUDA_VISIBLE_DEVICES.
 device: 'cuda:0'
 
 # ---- Logging -----------------------------------------------------------------
@@ -29,7 +30,7 @@ hydra:
 # ---- Data / replay buffer ----------------------------------------------------
 # Mini-batch size for world model + actor-critic updates.
 # Larger values reduce gradient variance but increase GPU memory.
-batch_size: 8
+batch_size: 16
 # Number of consecutive time steps per sampled sequence.
 # Longer sequences improve temporal credit assignment but cost more memory.
 batch_length: 64
@@ -41,8 +42,9 @@ buffer:
   # Larger buffers retain more diverse experience but use more RAM.
   max_size: 5e5
   device: ${device}
-  # Store transitions on CPU to save GPU memory; they are moved to GPU on sample.
-  storage_device: 'cpu'
+  # Where to store replay buffer data. _setup_gpu() overrides this to match
+  # the training GPU so storage and compute are always on the same device.
+  storage_device: 'cuda:0'
 
 # ---- Trainer -----------------------------------------------------------------
 trainer:
@@ -77,7 +79,7 @@ env:
   # Task identifier. Format: "suite_taskname" (e.g. dmc_walker_walk).
   task: 'dmc_walker_walk'
   # Total environment steps for the experiment.
-  steps: 7.2e5
+  steps: 1.01e6
   # Number of parallel training environments (vectorized).
   # More envs = faster data collection but higher CPU/memory usage.
   env_num: 16
@@ -111,17 +113,17 @@ model:
   # ---- Architecture sizing ---------------------------------------------------
   # Deterministic state size in the RSSM. Larger = more capacity for long-horizon
   # memory but increases compute and memory quadratically in attention-based variants.
-  deter: 3072
+  deter: 2048
   # Hidden layer size in the RSSM GRU. Should be proportional to deter.
-  hidden: 384
+  hidden: 256
   # Number of discrete categories for the stochastic state.
   # More categories = finer-grained belief but slower KL computation.
-  discrete: 24
+  discrete: 16
   # Base channel count for the CNN encoder/decoder.
   # Multiplied by mults at each layer. Directly controls model parameter count.
-  depth: 24
+  depth: 16
   # Hidden units for all MLP heads (reward, cont, actor, critic).
-  units: 384
+  units: 256
   # Activation function for all networks. SiLU (Swish) generally outperforms ReLU.
   act: 'SiLU'
   # Whether to use layer normalization. Stabilizes training, especially at scale.
