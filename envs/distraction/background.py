@@ -50,6 +50,7 @@ DAVIS17_VALIDATION_VIDEOS = [
 ]
 
 SKY_TEXTURE_INDEX = 0
+FLOOR_MATERIAL_NAME = 'grid'
 Texture = collections.namedtuple('Texture', ('size', 'address', 'textures'))
 
 
@@ -100,17 +101,23 @@ class DistractingBackgroundEnv(control.Environment):
 
     def __init__(self, env, dataset_path=None, dataset_videos=None,
                  video_alpha=1.0, ground_plane_alpha=1.0, num_videos=None,
-                 dynamic=False, seed=None, shuffle_buffer_size=None):
+                 dynamic=False, seed=None, shuffle_buffer_size=None,
+                 floor_video=False, floor_video_alpha=1.0):
         if not 0 <= video_alpha <= 1:
             raise ValueError('`video_alpha` must be in [0, 1].')
+        if not 0 <= floor_video_alpha <= 1:
+            raise ValueError('`floor_video_alpha` must be in [0, 1].')
 
         self._env = env
         self._video_alpha = video_alpha
         self._ground_plane_alpha = ground_plane_alpha
+        self._floor_video = floor_video
+        self._floor_video_alpha = floor_video_alpha
         self._random_state = np.random.RandomState(seed=seed)
         self._dynamic = dynamic
         self._shuffle_buffer_size = shuffle_buffer_size
         self._background = None
+        self._floor_background = None
         self._current_img_index = 0
         self._step_direction = 1
 
@@ -195,7 +202,57 @@ class DistractingBackgroundEnv(control.Environment):
             texturized_images = [sky_texture]
 
         self._background = Texture(sky_size, sky_addr, texturized_images)
+
+        # ---- Floor texture ----
+        self._floor_background = None
+        if self._floor_video and self._video_paths:
+            floor_tex_index = self._find_floor_texture_index()
+            if floor_tex_index is not None:
+                fl_height = self._env.physics.model.tex_height[floor_tex_index]
+                fl_width  = self._env.physics.model.tex_width[floor_tex_index]
+                fl_nchan  = self._env.physics.model.tex_nchannel[floor_tex_index]
+                fl_size   = fl_height * fl_width * fl_nchan
+                fl_addr   = self._env.physics.model.tex_adr[floor_tex_index]
+                fl_texture = self._env.physics.model.tex_data[
+                    fl_addr : fl_addr + fl_size
+                ].astype(np.float32)
+
+                # Pick a different (or same) random video for the floor
+                floor_video_path = self._random_state.choice(self._video_paths)
+                floor_file_names = _listdir_sorted(floor_video_path)
+                if not self._dynamic:
+                    floor_file_names = [self._random_state.choice(floor_file_names)]
+                floor_images = [_imread(os.path.join(floor_video_path, fn))
+                                for fn in floor_file_names]
+
+                floor_texturized = []
+                for image in floor_images:
+                    flat = _size_and_flatten(image, fl_height, fl_width)
+                    new_tex = _blend_to_background(self._floor_video_alpha, flat, fl_texture)
+                    floor_texturized.append(new_tex)
+
+                self._floor_background = Texture(fl_size, fl_addr, floor_texturized)
+
         self._apply()
+
+    def _find_floor_texture_index(self):
+        """Return the MuJoCo texture index used by the 'grid' floor material, or None."""
+        model = self._env.physics.model
+        try:
+            # mat_texid is 2D (nmat x ntexrole); the diffuse slot (index 0 in the
+            # row, but MuJoCo flattens it differently) — just scan the row for the
+            # first non-negative value.
+            mat_names = [model.id2name(i, 'material')
+                         for i in range(model.nmat)]
+            if FLOOR_MATERIAL_NAME in mat_names:
+                mat_id = mat_names.index(FLOOR_MATERIAL_NAME)
+                row = model.mat_texid[mat_id]  # array of texids per role slot
+                for tex_id in row.flat:
+                    if tex_id >= 0:
+                        return int(tex_id)
+        except Exception:
+            pass
+        return None
 
     def step(self, action):
         time_step = self._env.step(action)
@@ -234,6 +291,25 @@ class DistractingBackgroundEnv(control.Environment):
                 self._env.physics.contexts.mujoco.ptr,
                 SKY_TEXTURE_INDEX,
             )
+
+        # Apply floor video texture if enabled
+        if self._floor_background is not None:
+            fl_idx = min(self._current_img_index,
+                         len(self._floor_background.textures) - 1)
+            fl_start = self._floor_background.address
+            fl_end   = self._floor_background.address + self._floor_background.size
+            self._env.physics.model.tex_data[fl_start:fl_end] = (
+                self._floor_background.textures[fl_idx]
+            )
+            floor_tex_index = self._find_floor_texture_index()
+            if floor_tex_index is not None:
+                with self._env.physics.contexts.gl.make_current() as ctx:
+                    ctx.call(
+                        mjbindings.mjlib.mjr_uploadTexture,
+                        self._env.physics.model.ptr,
+                        self._env.physics.contexts.mujoco.ptr,
+                        floor_tex_index,
+                    )
 
     def __getattr__(self, attr):
         if hasattr(self._env, attr):

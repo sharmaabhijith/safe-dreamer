@@ -415,8 +415,8 @@ class Dreamer(nn.Module):
         self._optimizer.zero_grad(set_to_none=True)  # reset grads
         mets["opt/lr"] = self._scheduler.get_lr()[0]
         if self.use_multimodal_encoder:
-            diag = self.encoder.get_diagnostics()
-            mets["encoder/text_gate_mean"] = diag["text_gate_mean"]
+            for k, v in self.encoder.get_diagnostics().items():
+                mets[f"encoder/{k}"] = v
         mets["opt/grad_scale"] = self._scaler.get_scale()
         if self._log_grads:
             updates = [(new - old) for (new, old) in zip(self._named_params.values(), old_params)]
@@ -449,10 +449,12 @@ class Dreamer(nn.Module):
         # (B, T, E)
         if self.use_multimodal_encoder and self.encoder._use_text_gate:
             visual_embed, rssm_embed = self.encoder(data, return_both=True)
+            _text_ctx = self.encoder._cached_ctx  # reuse below for aug pass
         else:
             embed = self.encoder(data)
             visual_embed = embed
             rssm_embed = embed
+            _text_ctx = None
         # (B, T, S, K), (B, T, D), (B, T, S, K)
         post_stoch, post_deter, post_logit = self.rssm.observe(rssm_embed, data["action"], initial, data["is_first"])
         # (B, T, S, K)
@@ -483,7 +485,9 @@ class Dreamer(nn.Module):
                 with torch.no_grad():
                     data_aug = self._augment_images(data)
                 if self.use_multimodal_encoder and self.encoder._use_text_gate:
-                    visual_embed_aug, _ = self.encoder(data_aug, return_both=True)
+                    # Reuse the text context already computed for the main pass —
+                    # the augmented view shares the same text, so re-encoding is wasteful.
+                    visual_embed_aug, _ = self.encoder(data_aug, return_both=True, reuse_text_context=_text_ctx)
                 else:
                     visual_embed_aug = self.encoder(data_aug)
                 x2 = visual_embed_aug.reshape(B * T, -1).detach()

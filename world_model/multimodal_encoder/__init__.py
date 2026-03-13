@@ -1,6 +1,4 @@
-from .encoder import MultimodalEncoderConfig
-from .encoder import MultimodalEncoder
-from .task_descriptions import get_task_texts, sample_task_text
+from .encoder import MultimodalEncoderConfig, MultimodalEncoder, get_task_texts, sample_task_text
 
 __all__ = [
     "MultimodalEncoderConfig",

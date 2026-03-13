@@ -9,15 +9,40 @@ The forward interface matches MultiEncoder: forward(obs) -> (B, T, E).
 When called with return_both=True, returns (visual_embed, rssm_embed).
 """
 
+import json
+import random
+from dataclasses import dataclass
+from pathlib import Path
+
 import torch
 import torch.nn as nn
 
 from utils.tools import weight_init_
 
-from .task_descriptions import get_task_texts, sample_task_text
 from .text_encoder import TextContextEncoder, TextGate
 from .visual_encoder import FiLMConditionedVisualEncoder
-from dataclasses import dataclass
+
+# ---------------------------------------------------------------------------
+# Generic text pool (1000 descriptions, loaded once on first use)
+# ---------------------------------------------------------------------------
+_GENERIC_FILE = Path(__file__).parent / "dmc_generic_texts.json"
+_GENERIC_TEXTS: list[str] | None = None
+
+
+def _load_texts() -> list[str]:
+    global _GENERIC_TEXTS
+    if _GENERIC_TEXTS is None:
+        with open(_GENERIC_FILE) as f:
+            _GENERIC_TEXTS = json.load(f)["descriptions"]
+    return _GENERIC_TEXTS
+
+
+def get_task_texts(task_name: str) -> list[str]:  # noqa: ARG001
+    return _load_texts()
+
+
+def sample_task_text(task_name: str) -> str:  # noqa: ARG001
+    return random.choice(_load_texts())
 
 
 @dataclass
@@ -90,9 +115,15 @@ class MultimodalEncoder(nn.Module):
         # Text context cache (avoid recomputing frozen CLIP)
         self._cached_text = None
         self._cached_ctx = None
+        # Resample text every N forward passes to avoid torch.compile recompilation.
+        # With 100 descriptions and batch_length=64, interval=64 gives ~4x fewer
+        # attn_pool+proj calls vs 16 with negligible effect on text diversity.
+        self._text_resample_interval = 64
+        self._text_forward_count = 0
 
-        # Diagnostics
-        self._last_gate_mean = 0.0
+        # Diagnostics (stored as tensors, converted to Python only in get_diagnostics)
+        self._last_gate_mean = None
+        self._last_gate_std = None
 
         # Apply weight_init_ to CNN layers (matching ConvEncoder's init)
         # SKIP FiLM generators and gate network (they have custom init)
@@ -117,28 +148,45 @@ class MultimodalEncoder(nn.Module):
         self._eval_text = self._task_texts[0]
 
     def _get_text_context(self, B, device):
-        """Get text context vector, sampling random text during training."""
+        """Get text context vector, sampling random text during training.
+
+        During training, text is resampled every `_text_resample_interval` forward
+        passes rather than every call.  This prevents torch.compile from hitting
+        the recompile limit due to string-value guards on the tokenised text.
+        """
         if self.training:
-            text = sample_task_text(self._task_name)
+            # Only resample on a fixed interval to avoid torch.compile graph breaks
+            if (
+                self._cached_ctx is None
+                or self._cached_ctx.shape[0] != B
+                or self._cached_ctx.device != device
+                or self._text_forward_count % self._text_resample_interval == 0
+            ):
+                text = sample_task_text(self._task_name)
+                text_list = [text] * B
+                ctx = self.text_context_encoder(text_list, device)
+                self._cached_text = text
+                self._cached_ctx = ctx.detach()
+            self._text_forward_count += 1
+            return self._cached_ctx
         else:
             text = self._eval_text
+            # Cache: avoid recomputing frozen CLIP for the same string
+            if (
+                self._cached_text == text
+                and self._cached_ctx is not None
+                and self._cached_ctx.shape[0] == B
+                and self._cached_ctx.device == device
+            ):
+                return self._cached_ctx
 
-        # Cache: avoid recomputing frozen CLIP for the same string
-        if (
-            self._cached_text == text
-            and self._cached_ctx is not None
-            and self._cached_ctx.shape[0] == B
-            and self._cached_ctx.device == device
-        ):
-            return self._cached_ctx
+            text_list = [text] * B
+            ctx = self.text_context_encoder(text_list, device)
+            self._cached_text = text
+            self._cached_ctx = ctx.detach()
+            return ctx
 
-        text_list = [text] * B
-        ctx = self.text_context_encoder(text_list, device)
-        self._cached_text = text
-        self._cached_ctx = ctx.detach()  # cache DETACHED to avoid graph retention
-        return ctx
-
-    def forward(self, obs, return_both=True):
+    def forward(self, obs, return_both=True, reuse_text_context=None):
         """Encode observations with FiLM-conditioned visual encoder.
 
         Args:
@@ -146,6 +194,10 @@ class MultimodalEncoder(nn.Module):
                  Images should be float in [0, 1] (already preprocessed).
             return_both: if True return (visual_embed, rssm_embed),
                          if False return visual_embed only.
+            reuse_text_context: optional (B, text_context_dim) tensor to use
+                instead of re-encoding text. Useful for augmented views that
+                share the same text as the original batch (avoids redundant
+                attn_pool + proj computation).
         Returns:
             If return_both and use_text_gate:
                 visual_embed: (B, T, E) — pure visual, for Barlow Twins e_t.
@@ -171,7 +223,10 @@ class MultimodalEncoder(nn.Module):
         x = x.permute(0, 3, 1, 2)
 
         # Get text context: (B, text_context_dim)
-        text_context = self._get_text_context(B, images.device)
+        if reuse_text_context is not None:
+            text_context = reuse_text_context
+        else:
+            text_context = self._get_text_context(B, images.device)
         # Expand to all timesteps: (B*T, text_context_dim)
         if has_time:
             text_expanded = text_context.unsqueeze(1).expand(-1, T, -1).reshape(B * T, -1)
@@ -184,7 +239,9 @@ class MultimodalEncoder(nn.Module):
         if return_both and self._use_text_gate:
             # Gate: mix visual + text for RSSM input
             rssm_embed, gate_values = self.text_gate(visual_embed, text_expanded)
-            self._last_gate_mean = gate_values.mean().item()
+            # Store as tensors — avoid .item() inside compiled graph (graph break)
+            self._last_gate_mean = gate_values.mean().detach()
+            self._last_gate_std = gate_values.std().detach()
 
             # Reshape back to (B, T, E)
             if has_time:
@@ -205,7 +262,18 @@ class MultimodalEncoder(nn.Module):
 
     def get_diagnostics(self):
         """Return diagnostic values for tensorboard logging."""
-        return {"text_gate_mean": self._last_gate_mean}
+        diag = {
+            "text_gate_mean": self._last_gate_mean.item() if self._last_gate_mean is not None else 0.0,
+            "text_gate_std": self._last_gate_std.item() if self._last_gate_std is not None else 0.0,
+        }
+        if self._use_text_gate:
+            gate_final = self.text_gate.gate_net[2]
+            diag["text_gate_final_bias_mean"] = gate_final.bias.mean().item()
+            diag["text_gate_final_weight_norm"] = gate_final.weight.norm().item()
+            diag["text_proj_weight_norm"] = sum(
+                p.norm().item() for p in self.text_gate.text_proj.parameters() if p.ndim > 1
+            )
+        return diag
 
     def get_film_parameters(self):
         """FiLM generator params, for optional separate LR."""

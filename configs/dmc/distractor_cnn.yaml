@@ -26,7 +26,7 @@ env:
   difficulty: 'easy'
   # When True, distractors change every environment step (harder).
   # When False, distractors are sampled once per episode reset (easier).
-  dynamic: false
+  dynamic: true
   # Enable DAVIS 2017 video backgrounds as distractors.
   background: true
   # Enable random camera pose jitter.
@@ -38,6 +38,16 @@ env:
   background_dataset_path: DAVIS/JPEGImages/480p
   # Which DAVIS split to use: 'train' or 'val'.
   background_dataset_videos: 'train'
+
+  # ---- Floor distractor settings ---------------------------------------------
+  # Apply video distraction to the floor (ground plane) as well as the sky.
+  floor_video: true
+  # Blend factor for the floor video: 1.0 = full video, 0.0 = original texture.
+  floor_video_alpha: 1.0
+  # Alpha (opacity) of the floor grid material. Set < 1.0 to make the floor
+  # semi-transparent so the video underneath shows through.
+  # null means use the per-domain default (1.0 for walker/cheetah, 0.3 others).
+  ground_plane_alpha: null
 
 # ---- Model -------------------------------------------------------------------
 model:
@@ -83,7 +93,7 @@ model:
   # the encoder to ignore background noise.
   r2dreamer:
     aug:
-      enabled: true
+      enabled: false
       # Maximum pixel shift for random-shift augmentation.
       max_delta: 3.0
       # Apply the same shift across all time steps (preserves temporal structure).

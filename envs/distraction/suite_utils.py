@@ -48,22 +48,27 @@ def get_camera_kwargs(domain_name, scale, dynamic):
 
 
 def get_background_kwargs(domain_name, num_videos, dynamic, dataset_path,
-                          dataset_videos=None, shuffle=False, video_alpha=1.0):
+                          dataset_videos=None, shuffle=False, video_alpha=1.0,
+                          floor_video=False, floor_video_alpha=1.0,
+                          ground_plane_alpha=None):
     assert domain_name in [
         'reacher', 'cartpole', 'finger', 'cheetah',
         'ball_in_cup', 'walker', 'humanoid',
     ]
-    if domain_name == 'reacher':
-        ground_plane_alpha = 0.0
-    elif domain_name in ['walker', 'cheetah']:
-        ground_plane_alpha = 1.0
-    else:
-        ground_plane_alpha = 0.3
+    if ground_plane_alpha is None:
+        if domain_name == 'reacher':
+            ground_plane_alpha = 0.0
+        elif domain_name in ['walker', 'cheetah']:
+            ground_plane_alpha = 1.0
+        else:
+            ground_plane_alpha = 0.3
 
     return dict(
         num_videos=num_videos,
         video_alpha=video_alpha,
         ground_plane_alpha=ground_plane_alpha,
+        floor_video=floor_video,
+        floor_video_alpha=floor_video_alpha,
         dynamic=dynamic,
         dataset_path=dataset_path,
         dataset_videos=dataset_videos,

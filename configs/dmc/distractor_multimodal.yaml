@@ -27,7 +27,7 @@ env:
   difficulty: 'easy'
   # When True, distractors change every environment step (harder).
   # When False, distractors are sampled once per episode reset (easier).
-  dynamic: false
+  dynamic: true
   # Enable DAVIS 2017 video backgrounds as distractors.
   background: true
   # Enable random camera pose jitter.
@@ -40,6 +40,16 @@ env:
   # Which DAVIS split to use: 'train' or 'val'.
   background_dataset_videos: 'train'
 
+  # ---- Floor distractor settings ---------------------------------------------
+  # Apply video distraction to the floor (ground plane) as well as the sky.
+  floor_video: true
+  # Blend factor for the floor video: 1.0 = full video, 0.0 = original texture.
+  floor_video_alpha: 1.0
+  # Alpha (opacity) of the floor grid material. Set < 1.0 to make the floor
+  # semi-transparent so the video underneath shows through.
+  # null means use the per-domain default (1.0 for walker/cheetah, 0.3 others).
+  ground_plane_alpha: null
+
 # ---- Model -------------------------------------------------------------------
 model:
   # Enable FiLM-conditioned multimodal encoder (frozen CLIP text + CNN vision).
@@ -51,7 +61,7 @@ model:
   lr: 4e-5
   # Adaptive gradient clipping threshold.
   # Clips gradients whose norm exceeds agc * param_norm. Prevents training spikes.
-  agc: 0.15
+  agc: 0.3
 
   # ---- Policy ----------------------------------------------------------------
   # Entropy regularization for the actor.
@@ -59,22 +69,24 @@ model:
   act_entropy: 3e-4
   # Free nats for KL divergence. Prevents posterior collapse by ignoring KL
   # below this threshold. Higher = less KL penalty = weaker dynamics learning.
-  kl_free: 2.0
+  kl_free: 1.0
+
+  imag_horizon: 15
 
   # ---- Loss scales -----------------------------------------------------------
   # Relative weights for each loss component. Adjusting these trades off
   # reconstruction quality vs. dynamics accuracy vs. policy performance.
   loss_scales:
-    barlow: 0.05        # Barlow Twins contrastive (only when rep_loss=r2dreamer)
+    barlow: 0.06        # Barlow Twins contrastive (only when rep_loss=r2dreamer)
     infonce: 1.0        # InfoNCE contrastive (only when rep_loss=infonce)
     recon: 1.0          # Image reconstruction — higher = sharper images
     rew: 1.0            # Reward prediction — critical for task performance
     con: 1.0            # Continuation (discount) prediction
-    dyn: 0.5            # Dynamics (transition model) — higher = better forward predictions
+    dyn: 0.8            # Dynamics (transition model) — higher = better forward predictions
     rep: 0.1            # Representation (encoder) — balances encoder vs. dynamics gradients
     policy: 1.0         # Actor loss weight
     value: 1.0          # Critic loss weight
-    repval: 0.2         # Representation-value alignment
+    repval: 0.3        # Representation-value alignment
     swav: 1.0           # SwaV loss (only when rep_loss=dreamerpro)
     temp: 1.0           # Temperature scaling
     norm: 1.0           # Normalization loss

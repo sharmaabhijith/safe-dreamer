@@ -15,7 +15,7 @@ seed: 0
 deterministic_run: False
 # CUDA device for training. Pass device=cuda:N on the CLI to pick a GPU.
 # Under SLURM this is ignored — the scheduler sets CUDA_VISIBLE_DEVICES.
-device: 'cuda:0'
+device: 'cuda:5'
 
 # ---- Logging -----------------------------------------------------------------
 logdir: logdir/${now:%Y-%m-%d}/${now:%H-%M-%S}

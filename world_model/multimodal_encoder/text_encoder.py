@@ -91,17 +91,29 @@ class TextContextEncoder(nn.Module):
     def forward(self, text_list: list, device):
         """Encode a list of (identical) text strings into context vectors.
 
+        Optimisation: when all strings are identical (the common case), we encode
+        only once and broadcast, avoiding B redundant attn_pool + proj calls.
+
         Args:
             text_list: list of B text strings (typically all the same).
             device: target device.
         Returns:
             (B, text_context_dim)
         """
-        clip_features = []
-        for text in text_list:
-            clip_features.append(self._encode_clip(text, device))
+        B = len(text_list)
+        unique_texts = list(dict.fromkeys(text_list))  # deduplicate while preserving order
 
-        # Pad to same sequence length and stack
+        if len(unique_texts) == 1:
+            # Fast path: encode once, broadcast to B
+            clip_feat = self._encode_clip(unique_texts[0], device)  # (1, N_tokens, clip_dim)
+            clip_feat = clip_feat.to(dtype=self.proj.weight.dtype)
+            attn_weights = torch.softmax(self.attn_pool(clip_feat), dim=1)  # (1, N_tokens, 1)
+            pooled = (clip_feat * attn_weights).sum(dim=1)  # (1, clip_dim)
+            ctx = self.proj(pooled)  # (1, text_context_dim)
+            return ctx.expand(B, -1)  # (B, text_context_dim) — no copy
+
+        # General path: mixed texts (rare)
+        clip_features = [self._encode_clip(t, device) for t in text_list]
         max_len = max(f.shape[1] for f in clip_features)
         padded = []
         for f in clip_features:
@@ -110,15 +122,9 @@ class TextContextEncoder(nn.Module):
                 f = torch.cat([f, pad], dim=1)
             padded.append(f)
 
-        # (B, N_tokens, clip_dim)
-        clip_batch = torch.cat(padded, dim=0)
-        clip_batch = clip_batch.to(dtype=self.proj.weight.dtype)
-
-        # Attention pooling: (B, N_tokens, 1) -> softmax -> weighted sum
-        attn_weights = torch.softmax(self.attn_pool(clip_batch), dim=1)  # (B, N_tokens, 1)
-        pooled = (clip_batch * attn_weights).sum(dim=1)  # (B, clip_dim)
-
-        # Project to context dim: (B, text_context_dim)
+        clip_batch = torch.cat(padded, dim=0).to(dtype=self.proj.weight.dtype)
+        attn_weights = torch.softmax(self.attn_pool(clip_batch), dim=1)
+        pooled = (clip_batch * attn_weights).sum(dim=1)
         return self.proj(pooled)
 
     def clear_cache(self):
