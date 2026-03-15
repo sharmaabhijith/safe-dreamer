@@ -10,6 +10,8 @@ defaults:
   - /base@_global_
   - _self_
 
+experiment: cnn
+
 # ---- Environment -------------------------------------------------------------
 env:
   task: 'dmc_walker_walk'

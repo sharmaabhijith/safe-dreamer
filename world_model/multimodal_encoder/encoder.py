@@ -166,7 +166,7 @@ class MultimodalEncoder(nn.Module):
                 text_list = [text] * B
                 ctx = self.text_context_encoder(text_list, device)
                 self._cached_text = text
-                self._cached_ctx = ctx.detach()
+                self._cached_ctx = ctx.detach().clone()
             self._text_forward_count += 1
             return self._cached_ctx
         else:
@@ -183,8 +183,8 @@ class MultimodalEncoder(nn.Module):
             text_list = [text] * B
             ctx = self.text_context_encoder(text_list, device)
             self._cached_text = text
-            self._cached_ctx = ctx.detach()
-            return ctx
+            self._cached_ctx = ctx.detach().clone()
+            return self._cached_ctx
 
     def forward(self, obs, return_both=True, reuse_text_context=None):
         """Encode observations with FiLM-conditioned visual encoder.

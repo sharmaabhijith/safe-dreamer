@@ -12,6 +12,8 @@ defaults:
   - /base@_global_
   - _self_
 
+experiment: distractor_multimodal
+
 # ---- Environment -------------------------------------------------------------
 env:
   # Prefix "distract_" activates the DistractingControl wrapper.
@@ -35,8 +37,8 @@ env:
   # Enable random body color changes.
   color: false
   # Path to DAVIS 2017 480p JPEGImages directory for background distractors.
-  #background_dataset_path: /nfs-stor/salem.lahlou/DAVIS/JPEGImages/480p
-  background_dataset_path: DAVIS/JPEGImages/480p
+  background_dataset_path: /nfs-stor/salem.lahlou/DAVIS/JPEGImages/480p
+  #background_dataset_path: DAVIS/JPEGImages/480p
   # Which DAVIS split to use: 'train' or 'val'.
   background_dataset_videos: 'train'
 

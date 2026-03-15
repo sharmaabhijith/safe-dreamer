@@ -18,7 +18,8 @@ deterministic_run: False
 device: 'cuda:5'
 
 # ---- Logging -----------------------------------------------------------------
-logdir: logdir/${now:%Y-%m-%d}/${now:%H-%M-%S}
+experiment: null  # set by each experiment config (e.g. cnn, multimodal)
+logdir: /nfs-stor/salem.lahlou/asharma/logdir/${env.task}/${experiment}
 
 hydra:
   run:

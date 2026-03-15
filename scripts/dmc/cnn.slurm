@@ -1,9 +1,11 @@
 #!/bin/bash
 #SBATCH --job-name=dmc-cnn
-#SBATCH --account=cscc-users
-#SBATCH --partition=cscc-gpu-p
-#SBATCH --qos=cscc-gpu-qos
-#SBATCH --gres=gpu:1
+#SBATCH --partition=long
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=8
+#SBATCH --gres=gpu:a100-sxm4-40gb:1
+#SBATCH --mem=64G
 #SBATCH --time=24:00:00
 #SBATCH --output=slurm_logs/%j_dmc-cnn-o.txt
 #SBATCH --error=slurm_logs/%j_dmc-cnn-e.txt

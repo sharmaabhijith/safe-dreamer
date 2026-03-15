@@ -396,8 +396,17 @@ class Dreamer(nn.Module):
         if self.rep_loss == "dreamerpro":
             self.ema_update()
         metrics = {}
+        # Pre-compute text context OUTSIDE torch.compile to avoid CUDAGraph
+        # tensor overwrite issues (torch.compile traces _get_text_context and
+        # the cached tensor's storage gets overwritten on subsequent replays).
+        if self.use_multimodal_encoder and self.encoder._use_text_gate:
+            B = p_data["image"].shape[0]
+            device = p_data["image"].device
+            text_ctx = self.encoder._get_text_context(B, device)
+        else:
+            text_ctx = None
         with autocast(device_type=self.device.type, dtype=torch.float16):
-            (stoch, deter), mets = self._cal_grad(p_data, initial)
+            (stoch, deter), mets = self._cal_grad(p_data, initial, text_ctx)
         self._scaler.unscale_(self._optimizer)  # unscale grads in params
         if self.rep_loss == "dreamerpro" and self._ema_updates < self.freeze_prototypes_iters:
             self._prototypes.grad.zero_()
@@ -429,7 +438,7 @@ class Dreamer(nn.Module):
         replay_buffer.update(index, stoch.detach(), deter.detach())
         return metrics
 
-    def _cal_grad(self, data, initial):
+    def _cal_grad(self, data, initial, text_ctx=None):
         """Compute gradients for one batch.
 
         Notes
@@ -448,13 +457,11 @@ class Dreamer(nn.Module):
         # === World model: posterior rollout and KL losses ===
         # (B, T, E)
         if self.use_multimodal_encoder and self.encoder._use_text_gate:
-            visual_embed, rssm_embed = self.encoder(data, return_both=True)
-            _text_ctx = self.encoder._cached_ctx  # reuse below for aug pass
+            visual_embed, rssm_embed = self.encoder(data, return_both=True, reuse_text_context=text_ctx)
         else:
             embed = self.encoder(data)
             visual_embed = embed
             rssm_embed = embed
-            _text_ctx = None
         # (B, T, S, K), (B, T, D), (B, T, S, K)
         post_stoch, post_deter, post_logit = self.rssm.observe(rssm_embed, data["action"], initial, data["is_first"])
         # (B, T, S, K)
@@ -487,7 +494,7 @@ class Dreamer(nn.Module):
                 if self.use_multimodal_encoder and self.encoder._use_text_gate:
                     # Reuse the text context already computed for the main pass —
                     # the augmented view shares the same text, so re-encoding is wasteful.
-                    visual_embed_aug, _ = self.encoder(data_aug, return_both=True, reuse_text_context=_text_ctx)
+                    visual_embed_aug, _ = self.encoder(data_aug, return_both=True, reuse_text_context=text_ctx)
                 else:
                     visual_embed_aug = self.encoder(data_aug)
                 x2 = visual_embed_aug.reshape(B * T, -1).detach()
@@ -525,7 +532,9 @@ class Dreamer(nn.Module):
                 ema_proj = self.ema_proj(data_aug)
 
             if self.use_multimodal_encoder and self.encoder._use_text_gate:
-                visual_embed_aug, rssm_embed_aug = self.encoder(data_aug, return_both=True)
+                # data_aug is doubled (2B), so expand text_ctx to match
+                text_ctx_2b = text_ctx.repeat(2, 1) if text_ctx is not None else None
+                visual_embed_aug, rssm_embed_aug = self.encoder(data_aug, return_both=True, reuse_text_context=text_ctx_2b)
                 embed_aug = visual_embed_aug
             else:
                 embed_aug = self.encoder(data_aug)

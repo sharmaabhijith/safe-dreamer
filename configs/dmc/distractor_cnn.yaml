@@ -11,6 +11,8 @@ defaults:
   - /base@_global_
   - _self_
 
+experiment: distractor_cnn
+
 # ---- Environment -------------------------------------------------------------
 env:
   # Prefix "distract_" activates the DistractingControl wrapper.
