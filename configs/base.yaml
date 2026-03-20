@@ -185,6 +185,9 @@ model:
   # Whether to use the FiLM-conditioned multimodal encoder (CLIP text + CNN vision).
   # When False, uses a standard CNN encoder.
   use_multimodal_encoder: False
+  # Ablation encoder variant. Only used when use_multimodal_encoder=True.
+  # Options: "default", "random_text", "gate_only", "nonsense_text", "adversarial_text"
+  ablation_encoder_type: "default"
 
   # ---- Loss scales (defaults, overridden per-experiment) ---------------------
   # Relative weights for each loss component. Adjusting these trades off

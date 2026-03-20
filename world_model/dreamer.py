@@ -16,6 +16,12 @@ from world_model.networks import Projector, MLPProjector
 from utils.optim import LaProp, clip_grad_agc_
 from utils.tools import to_f32
 from world_model.multimodal_encoder import MultimodalEncoder, MultimodalEncoderConfig
+from ablations.ablation_encoders import (
+    RandomTextMultimodalEncoder,
+    GateOnlyEncoder,
+    NonsenseTextMultimodalEncoder,
+    AdversarialTextMultimodalEncoder,
+)
 
 
 class Dreamer(nn.Module):
@@ -34,6 +40,9 @@ class Dreamer(nn.Module):
         # World model components
         shapes = {k: tuple(v.shape) for k, v in obs_space.spaces.items()}
         self.use_multimodal_encoder = bool(config.use_multimodal_encoder)
+        # Ablation encoder type: "default", "random_text", "gate_only",
+        #                        "nonsense_text", "adversarial_text"
+        self._ablation_encoder_type = str(getattr(config, "ablation_encoder_type", "default"))
         if self.use_multimodal_encoder:
             mm_cfg = config.multimodal_encoder
             self._mm_config = MultimodalEncoderConfig(
@@ -48,7 +57,17 @@ class Dreamer(nn.Module):
             cnn_shapes = {k: v for k, v in shapes.items() if len(v) == 3 and re.match(config.encoder.cnn_keys, k)}
             input_ch = sum(v[-1] for v in cnn_shapes.values())
             input_shape = tuple(cnn_shapes.values())[0][:2] + (input_ch,)
-            self.encoder = MultimodalEncoder(self._mm_config, config.encoder.cnn, input_shape)
+
+            # Select encoder variant based on ablation type
+            encoder_cls = {
+                "default": MultimodalEncoder,
+                "random_text": RandomTextMultimodalEncoder,
+                "gate_only": GateOnlyEncoder,
+                "nonsense_text": NonsenseTextMultimodalEncoder,
+                "adversarial_text": AdversarialTextMultimodalEncoder,
+            }
+            cls = encoder_cls.get(self._ablation_encoder_type, MultimodalEncoder)
+            self.encoder = cls(self._mm_config, config.encoder.cnn, input_shape)
         else:
             self.encoder = networks.MultiEncoder(config.encoder, shapes)
         self.embed_size = self.encoder.out_dim
@@ -170,11 +189,13 @@ class Dreamer(nn.Module):
                 total_frozen += frozen
 
                 # Detailed breakdown for multimodal encoder
-                if key == "encoder" and isinstance(module, MultimodalEncoder):
-                    submodules = {
-                        "visual_encoder (CNN+FiLM)": module.visual_encoder,
-                        "text_context_encoder (CLIP+pool+proj)": module.text_context_encoder,
-                    }
+                if key == "encoder" and isinstance(module, (MultimodalEncoder, GateOnlyEncoder)):
+                    submodules = {}
+                    if isinstance(module, MultimodalEncoder):
+                        submodules["visual_encoder (CNN+FiLM)"] = module.visual_encoder
+                    elif isinstance(module, GateOnlyEncoder):
+                        submodules["conv_encoder (CNN)"] = module.conv_encoder
+                    submodules["text_context_encoder (CLIP+pool+proj)"] = module.text_context_encoder
                     if module._use_text_gate:
                         submodules["text_gate"] = module.text_gate
                     for sub_key, sub_module in submodules.items():
@@ -399,7 +420,7 @@ class Dreamer(nn.Module):
         # Pre-compute text context OUTSIDE torch.compile to avoid CUDAGraph
         # tensor overwrite issues (torch.compile traces _get_text_context and
         # the cached tensor's storage gets overwritten on subsequent replays).
-        if self.use_multimodal_encoder and self.encoder._use_text_gate:
+        if self.use_multimodal_encoder:
             B = p_data["image"].shape[0]
             device = p_data["image"].device
             text_ctx = self.encoder._get_text_context(B, device)
@@ -458,6 +479,11 @@ class Dreamer(nn.Module):
         # (B, T, E)
         if self.use_multimodal_encoder and self.encoder._use_text_gate:
             visual_embed, rssm_embed = self.encoder(data, return_both=True, reuse_text_context=text_ctx)
+        elif self.use_multimodal_encoder:
+            # FiLM-only (no gate): still needs text_ctx for FiLM conditioning
+            embed = self.encoder(data, return_both=False, reuse_text_context=text_ctx)
+            visual_embed = embed
+            rssm_embed = embed
         else:
             embed = self.encoder(data)
             visual_embed = embed
@@ -495,6 +521,9 @@ class Dreamer(nn.Module):
                     # Reuse the text context already computed for the main pass —
                     # the augmented view shares the same text, so re-encoding is wasteful.
                     visual_embed_aug, _ = self.encoder(data_aug, return_both=True, reuse_text_context=text_ctx)
+                elif self.use_multimodal_encoder:
+                    # FiLM-only: still needs text_ctx for FiLM conditioning
+                    visual_embed_aug = self.encoder(data_aug, return_both=False, reuse_text_context=text_ctx)
                 else:
                     visual_embed_aug = self.encoder(data_aug)
                 x2 = visual_embed_aug.reshape(B * T, -1).detach()

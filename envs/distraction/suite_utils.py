@@ -30,7 +30,8 @@ def get_color_kwargs(scale, dynamic):
 def get_camera_kwargs(domain_name, scale, dynamic):
     assert domain_name in [
         'reacher', 'cartpole', 'finger', 'cheetah',
-        'ball_in_cup', 'walker', 'humanoid',
+        'ball_in_cup', 'walker', 'humanoid', 'hopper',
+        'quadruped', 'pendulum',
     ]
     assert 0.0 <= scale <= 1.0
     return dict(
@@ -53,12 +54,13 @@ def get_background_kwargs(domain_name, num_videos, dynamic, dataset_path,
                           ground_plane_alpha=None):
     assert domain_name in [
         'reacher', 'cartpole', 'finger', 'cheetah',
-        'ball_in_cup', 'walker', 'humanoid',
+        'ball_in_cup', 'walker', 'humanoid', 'hopper',
+        'quadruped', 'pendulum',
     ]
     if ground_plane_alpha is None:
         if domain_name == 'reacher':
             ground_plane_alpha = 0.0
-        elif domain_name in ['walker', 'cheetah']:
+        elif domain_name in ['walker', 'cheetah', 'hopper', 'quadruped']:
             ground_plane_alpha = 1.0
         else:
             ground_plane_alpha = 0.3

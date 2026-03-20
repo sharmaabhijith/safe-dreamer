@@ -84,7 +84,7 @@ model:
     recon: 1.0          # Image reconstruction — higher = sharper images
     rew: 1.0            # Reward prediction — critical for task performance
     con: 1.0            # Continuation (discount) prediction
-    dyn: 0.8            # Dynamics (transition model) — higher = better forward predictions
+    dyn: 0.6            # Dynamics (transition model) — higher = better forward predictions
     rep: 0.1            # Representation (encoder) — balances encoder vs. dynamics gradients
     policy: 1.0         # Actor loss weight
     value: 1.0          # Critic loss weight
@@ -109,4 +109,4 @@ model:
     max_text_length: 77
     use_text_gate: True
     # Start with ~12% text influence; the gate learns the optimal ratio.
-    gate_init_bias: -2
+    gate_init_bias: -3

@@ -5,7 +5,9 @@
 # For each task, 4 variants run in parallel. The next task's jobs only start
 # after all 4 variants of the previous task have finished (using --dependency).
 #
-# Tasks:  cheetah_run, hopper_hop, cartpole_swingup, finger_spin
+# Tasks:  cheetah_run, hopper_hop, cartpole_swingup, finger_spin,
+#         quadruped_run, quadruped_walk, reacher_easy, reacher_hard,
+#         walker_run, walker_stand, hopper_stand, pendulum_swingup
 # Variants: cnn, multimodal, distractor_cnn, distractor_multimodal
 #
 # Usage:
@@ -23,25 +25,33 @@ if [[ $# -gt 0 ]]; then
     TASKS=("$@")
 else
     TASKS=(
-        cheetah_run
-        hopper_hop
-        cartpole_swingup
-        finger_spin
+        #cheetah_run
+        #hopper_hop
+        #cartpole_swingup
+        #finger_spin
+        #quadruped_run
+        #quadruped_walk
+        #reacher_easy
+        reacher_hard
+        walker_run
+        # walker_stand
+        # hopper_stand
+        # pendulum_swingup
     )
 fi
 
 # ---- Experiment variants ----------------------------------------------------
 # Each entry: config_name  job_suffix  time_limit
 VARIANTS=(
-    "dmc/cnn                   cnn       24:00:00"
-    "dmc/multimodal             mm        24:00:00"
-    "dmc/distractor_cnn         dist-cnn  24:00:00"
-    "dmc/distractor_multimodal  dist-mm   24:00:00"
+    "dmc/cnn                    cnn       12:00:00"
+    "dmc/multimodal             mm        12:00:00"
+    "dmc/distractor_cnn         dist-cnn  12:00:00"
+    "dmc/distractor_multimodal  dist-mm   12:00:00"
 )
 
 # ---- SLURM defaults ---------------------------------------------------------
 PARTITION="long"
-CPUS=8
+CPUS=2
 MEM="64G"
 GPU="a100-sxm4-40gb:1"
 
@@ -83,8 +93,8 @@ for TASK in "${TASKS[@]}"; do
             --time="$TIME" \
             --output="slurm_logs/%j_${JOB_NAME}-o.txt" \
             --error="slurm_logs/%j_${JOB_NAME}-e.txt" \
-            --wrap="
-source \"${PROJECT_DIR}/scripts/setup_env.sh\"
+            --wrap="#!/bin/bash
+. \"${PROJECT_DIR}/scripts/setup_env.sh\"
 python -u train.py --config-name ${CONFIG} env.task=${TASK_NAME}
 ")
 

@@ -29,21 +29,21 @@ model:
   lr: 4e-5
   # Adaptive gradient clipping threshold.
   # Clips gradients whose norm exceeds agc * param_norm. Prevents training spikes.
-  agc: 0.3
+  agc: 0.2
 
   # ---- Policy ----------------------------------------------------------------
   # Entropy regularization for the actor.
   # Higher = more exploration but may prevent convergence to optimal policy.
-  act_entropy: 3e-4
+  act_entropy: 6e-4
   # Free nats for KL divergence. Prevents posterior collapse by ignoring KL
   # below this threshold. Higher = less KL penalty = weaker dynamics learning.
-  kl_free: 1.0
+  kl_free: 0.7
 
   # ---- Loss scales -----------------------------------------------------------
   # Relative weights for each loss component. Adjusting these trades off
   # reconstruction quality vs. dynamics accuracy vs. policy performance.
   loss_scales:
-    barlow: 0.06        # Barlow Twins contrastive (only when rep_loss=r2dreamer)
+    barlow: 0.05        # Barlow Twins contrastive (only when rep_loss=r2dreamer)
     infonce: 1.0        # InfoNCE contrastive (only when rep_loss=infonce)
     recon: 1.0          # Image reconstruction — higher = sharper images
     rew: 1.0            # Reward prediction — critical for task performance
@@ -52,7 +52,7 @@ model:
     rep: 0.1            # Representation (encoder) — balances encoder vs. dynamics gradients
     policy: 1.0         # Actor loss weight
     value: 1.0          # Critic loss weight
-    repval: 0.2         # Representation-value alignment
+    repval: 0.3         # Representation-value alignment
     swav: 1.0           # SwaV loss (only when rep_loss=dreamerpro)
     temp: 1.0           # Temperature scaling
     norm: 1.0           # Normalization loss
@@ -61,6 +61,9 @@ model:
   r2dreamer:
     aug:
       enabled: false
+      # max_delta: 2.0
+      # same_across_time: True
+      # bilinear: True
   # Text conditioning injects task knowledge into the visual encoder,
   # which can improve sample efficiency even without distractors.
   multimodal_encoder:
@@ -69,4 +72,4 @@ model:
     max_text_length: 77
     use_text_gate: True
     # Start with ~12% text influence; the gate learns the optimal ratio.
-    gate_init_bias: -2
+    gate_init_bias: -3
