@@ -4,22 +4,22 @@
 #
 # Task: cheetah_run (distract_cheetah_run for distractor variants)
 #
-# Ablations:
-#   A1  Random Text (FiLM+Gate, random context vector)
+# Training ablations (train from scratch):
 #   A2  FiLM Only (no TextGate)
 #   A3  Gate Only (no FiLM, standard CNN + TextGate)
 #   A4  Full Multimodal — our method (reference)
 #   A5  CNN Baseline (reference)
-#   B3  Nonsense Text (shuffled words)
-#   B6  Adversarial Text (semantically opposite)
 #   F1  Difficulty Sweep (CNN + Multimodal at easy/medium/hard)
 #   H3  Wider CNN (parameter-matched, depth=77)
 #
-# All ablations train from scratch (except E3, which is post-hoc plotting).
+# Text-swap eval ablations (eval-only, no retraining):
+#   Run via:  bash ablations/run_text_swap_eval.sh
+#   Tests: real_text, adversarial, nonsense, random_vector, zero_vector
+#   on the trained distractor_multimodal checkpoint.
 #
 # Usage:
-#   bash ablations/run_ablations.sh               # submit all
-#   bash ablations/run_ablations.sh a1 a4 a5      # submit specific ablations
+#   bash ablations/run_ablations.sh               # submit all training ablations
+#   bash ablations/run_ablations.sh a4 a5         # submit specific ones
 # =============================================================================
 
 set -euo pipefail
@@ -41,15 +41,10 @@ mkdir -p slurm_logs
 # Format: "ablation_id  config_name  task_name  time_limit"
 ALL_ABLATIONS=(
     # Component isolation (Section A)
-    "a1   dmc/ablations/a1_random_text       distract_cheetah_run  12:00:00"
-    "a2   dmc/ablations/a2_film_only         distract_cheetah_run  12:00:00"
-    "a3   dmc/ablations/a3_gate_only         distract_cheetah_run  12:00:00"
-    "a4   dmc/ablations/a4_full_multimodal   distract_cheetah_run  12:00:00"
-    "a5   dmc/ablations/a5_cnn_baseline      distract_cheetah_run  12:00:00"
-
-    # Text content (Section B)
-    "b3   dmc/ablations/b3_nonsense_text     distract_cheetah_run  12:00:00"
-    "b6   dmc/ablations/b6_adversarial_text  distract_cheetah_run  12:00:00"
+    # "a2   dmc/ablations/a2_film_only         distract_cheetah_run  14:00:00"
+    # "a3   dmc/ablations/a3_gate_only         distract_cheetah_run  14:00:00"
+    # "a4   dmc/ablations/a4_full_multimodal   distract_cheetah_run  14:00:00"
+    "a5   dmc/ablations/a5_cnn_baseline      distract_cheetah_run  14:00:00"
 
     # Difficulty sweep (Section F1) — CNN variants
     "f1_cnn_med   dmc/ablations/f1_cnn_medium         distract_cheetah_run  12:00:00"
@@ -134,13 +129,15 @@ echo "Monitor with: squeue -u \$USER"
 echo ""
 echo "After all jobs complete, generate plots with:"
 echo "  python ablations/plot_ablation_results.py \\"
-echo "    --base_logdir /nfs-stor/salem.lahlou/asharma/logdir/distract_cheetah_run \\"
+echo "    --base_logdir /nfs-stor/salem.lahlou/asharma/logdir/ablations \\"
 echo "    --output_dir ablations/results"
+echo ""
+echo "For text-swap eval ablation (no retraining), run:"
+echo "  bash ablations/run_text_swap_eval.sh"
 echo ""
 echo "For gate analysis (E3), run:"
 echo "  python ablations/plot_gate_analysis.py \\"
-echo "    --logdirs /nfs-stor/salem.lahlou/asharma/logdir/distract_cheetah_run/ablation_a4_full_multimodal \\"
-echo "             /nfs-stor/salem.lahlou/asharma/logdir/distract_cheetah_run/ablation_a1_random_text \\"
-echo "    --labels 'Full Multimodal' 'Random Text' \\"
+echo "    --logdirs /nfs-stor/salem.lahlou/asharma/logdir/ablations/ablation_a4_full_multimodal/distract_cheetah_run \\"
+echo "    --labels 'Full Multimodal' \\"
 echo "    --output ablations/results/e3_gate_analysis.pdf"
 echo "============================================="

@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir -p /home/salem.lahlou/asharma/safe-dreamer/ablations/results)",
+      "Bash(mkdir -p /home/salem.lahlou/asharma/safe-dreamer/configs/dmc/ablations)",
+      "Bash(chmod +x /home/salem.lahlou/asharma/safe-dreamer/ablations/run_ablations.sh)"
+    ]
+  }
+}

@@ -8,6 +8,7 @@ defaults:
   - _self_
 
 experiment: ablation_f1_cnn_medium
+logdir: /nfs-stor/salem.lahlou/asharma/logdir/ablations/${experiment}/${env.task}
 
 env:
   task: 'distract_cheetah_run'

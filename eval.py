@@ -24,6 +24,7 @@ os.environ["HF_HUB_CACHE"] = os.path.join(_hf_cache, "hub")
 os.environ["TRANSFORMERS_CACHE"] = os.path.join(_hf_cache, "hub")
 
 import argparse
+import time
 import warnings
 
 import numpy as np
@@ -146,6 +147,8 @@ def run_eval_episodes(agent, envs, num_episodes, device, record_video=True):
     all_scores = []
     all_lengths = []
     episodes_done = 0
+    t_start = time.time()
+    log_interval = max(1, num_episodes // 10)  # log ~10 times
 
     while episodes_done < num_episodes:
         steps += ~done * ~once_done
@@ -166,6 +169,7 @@ def run_eval_episodes(agent, envs, num_episodes, device, record_video=True):
         act, agent_state = agent.act(trans, agent_state, eval=True)
         returns += trans["reward"][:, 0] * ~once_done
 
+        prev_done = episodes_done
         newly_done = done & ~once_done
         for i in range(B):
             if newly_done[i]:
@@ -173,6 +177,21 @@ def run_eval_episodes(agent, envs, num_episodes, device, record_video=True):
                 all_lengths.append(steps[i].item())
                 episodes_done += 1
         once_done |= done
+
+        # Log progress when new episodes complete
+        if episodes_done > prev_done and (episodes_done % log_interval == 0 or episodes_done == num_episodes):
+            elapsed = time.time() - t_start
+            eps_per_sec = episodes_done / elapsed if elapsed > 0 else 0
+            remaining = (num_episodes - episodes_done) / eps_per_sec if eps_per_sec > 0 else 0
+            running_mean = np.mean(all_scores) if all_scores else 0
+            print(
+                f"    [{episodes_done:>{len(str(num_episodes))}}/{num_episodes}] "
+                f"score={running_mean:.2f}  "
+                f"elapsed={elapsed:.0f}s  "
+                f"ETA={remaining:.0f}s  "
+                f"({eps_per_sec:.1f} ep/s)",
+                flush=True,
+            )
 
         if once_done.all() and episodes_done < num_episodes:
             done = torch.ones(B, dtype=torch.bool, device=device)
@@ -182,6 +201,8 @@ def run_eval_episodes(agent, envs, num_episodes, device, record_video=True):
             agent_state = agent.get_initial_state(B)
             act = agent_state["prev_action"].clone()
 
+    total_time = time.time() - t_start
+    print(f"    Done: {num_episodes} episodes in {total_time:.1f}s ({num_episodes/total_time:.1f} ep/s)", flush=True)
     video = np.stack(video_frames, axis=0) if video_frames else None
     return all_scores[:num_episodes], all_lengths[:num_episodes], video
 
@@ -217,6 +238,16 @@ def make_env_config(train_config, video_dir=None):
         "encoder": train_config.env.encoder,
         "decoder": train_config.env.decoder,
     })
+    # Forward distractor env fields if present in training config
+    distractor_fields = [
+        "background_dataset_path", "background_dataset_videos",
+        "difficulty", "dynamic", "background", "camera", "color",
+        "floor_video", "floor_video_alpha", "ground_plane_alpha",
+    ]
+    for field in distractor_fields:
+        val = getattr(train_config.env, field, None)
+        if val is not None:
+            OmegaConf.update(env_config, field, val)
     if video_dir:
         OmegaConf.update(env_config, "video_dir", video_dir)
     return env_config

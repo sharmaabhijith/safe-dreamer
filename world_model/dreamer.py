@@ -16,12 +16,7 @@ from world_model.networks import Projector, MLPProjector
 from utils.optim import LaProp, clip_grad_agc_
 from utils.tools import to_f32
 from world_model.multimodal_encoder import MultimodalEncoder, MultimodalEncoderConfig
-from ablations.ablation_encoders import (
-    RandomTextMultimodalEncoder,
-    GateOnlyEncoder,
-    NonsenseTextMultimodalEncoder,
-    AdversarialTextMultimodalEncoder,
-)
+from ablations.ablation_encoders import GateOnlyEncoder
 
 
 class Dreamer(nn.Module):
@@ -40,8 +35,7 @@ class Dreamer(nn.Module):
         # World model components
         shapes = {k: tuple(v.shape) for k, v in obs_space.spaces.items()}
         self.use_multimodal_encoder = bool(config.use_multimodal_encoder)
-        # Ablation encoder type: "default", "random_text", "gate_only",
-        #                        "nonsense_text", "adversarial_text"
+        # Ablation encoder type: "default" or "gate_only"
         self._ablation_encoder_type = str(getattr(config, "ablation_encoder_type", "default"))
         if self.use_multimodal_encoder:
             mm_cfg = config.multimodal_encoder
@@ -61,10 +55,7 @@ class Dreamer(nn.Module):
             # Select encoder variant based on ablation type
             encoder_cls = {
                 "default": MultimodalEncoder,
-                "random_text": RandomTextMultimodalEncoder,
                 "gate_only": GateOnlyEncoder,
-                "nonsense_text": NonsenseTextMultimodalEncoder,
-                "adversarial_text": AdversarialTextMultimodalEncoder,
             }
             cls = encoder_cls.get(self._ablation_encoder_type, MultimodalEncoder)
             self.encoder = cls(self._mm_config, config.encoder.cnn, input_shape)

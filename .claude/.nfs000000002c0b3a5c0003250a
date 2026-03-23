@@ -6,8 +6,7 @@
       "Bash(chmod +x /home/salem.lahlou/asharma/safe-dreamer/ablations/run_ablations.sh)",
       "Read(//nfs-stor/salem.lahlou/asharma/logdir/ablations/**)",
       "Bash(python3 -c \":*)",
-      "Read(//nfs-stor/salem.lahlou/**)",
-      "Bash(pip install:*)"
+      "Read(//nfs-stor/salem.lahlou/**)"
     ]
   }
 }

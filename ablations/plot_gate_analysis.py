@@ -9,8 +9,8 @@ Usage:
 
     # Compare multiple runs:
     python ablations/plot_gate_analysis.py \
-        --logdirs /path/to/a4_full_multimodal /path/to/a1_random_text \
-        --labels "Full Multimodal" "Random Text" \
+        --logdirs /path/to/a4_full_multimodal \
+        --labels "Full Multimodal" \
         --output ablations/results/e3_gate_analysis.pdf
 """
 

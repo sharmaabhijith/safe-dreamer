@@ -1,15 +1,18 @@
 """Plot ablation study results.
 
-Reads TensorBoard event files from all ablation runs and produces:
-  1. Component ablation bar chart (A1-A5)
-  2. Text content ablation bar chart (A4 vs B3 vs B6)
-  3. Distractor difficulty sweep line plot (F1)
-  4. Parameter-matched comparison bar chart (H3 vs A4 vs A5)
+Reads TensorBoard event files from training ablation runs and produces:
+  1. Component ablation bar chart (A2-A5)
+  2. Distractor difficulty sweep line plot (F1)
+  3. Parameter-matched comparison bar chart (H3 vs A4 vs A5)
+  4. Training curves for all ablations
   5. Summary table printed to console and saved as CSV
+
+Text content ablations (adversarial, nonsense, random, zero) are now
+eval-time only — see ablations/eval_text_swap.py.
 
 Usage:
     python ablations/plot_ablation_results.py \
-        --base_logdir /nfs-stor/salem.lahlou/asharma/logdir/distract_cheetah_run \
+        --base_logdir /nfs-stor/salem.lahlou/asharma/logdir/ablations \
         --output_dir ablations/results
 """
 
@@ -82,10 +85,9 @@ def smooth(values, weight=0.9):
 
 
 def plot_component_ablation(results, output_dir):
-    """Bar chart for component isolation ablations (A1-A5)."""
+    """Bar chart for component isolation ablations (A2-A5)."""
     ablations = [
         ("A5: CNN Baseline", "ablation_a5_cnn_baseline"),
-        ("A1: Random Text\n(FiLM+Gate)", "ablation_a1_random_text"),
         ("A3: Gate Only\n(No FiLM)", "ablation_a3_gate_only"),
         ("A2: FiLM Only\n(No Gate)", "ablation_a2_film_only"),
         ("A4: Full Multimodal\n(Ours)", "ablation_a4_full_multimodal"),
@@ -103,7 +105,7 @@ def plot_component_ablation(results, output_dir):
         return
 
     fig, ax = plt.subplots(figsize=(10, 6))
-    colors = ["#d62728", "#ff7f0e", "#9467bd", "#2ca02c", "#1f77b4"][:len(labels)]
+    colors = ["#d62728", "#9467bd", "#2ca02c", "#1f77b4"][:len(labels)]
     bars = ax.bar(range(len(labels)), means, yerr=stds, color=colors,
                   edgecolor="black", linewidth=0.8, capsize=5, zorder=3)
     ax.set_xticks(range(len(labels)))
@@ -124,43 +126,11 @@ def plot_component_ablation(results, output_dir):
 
 
 def plot_text_content_ablation(results, output_dir):
-    """Bar chart for text content ablations (A4 vs B3 vs B6)."""
-    ablations = [
-        ("B6: Adversarial\nText", "ablation_b6_adversarial_text"),
-        ("B3: Nonsense\nText", "ablation_b3_nonsense_text"),
-        ("A5: CNN Baseline\n(No Text)", "ablation_a5_cnn_baseline"),
-        ("A4: Real Text\n(Ours)", "ablation_a4_full_multimodal"),
-    ]
+    """Placeholder: text content ablations are now eval-time only.
 
-    labels, means, stds = [], [], []
-    for label, key in ablations:
-        if key in results and results[key][0] is not None:
-            labels.append(label)
-            means.append(results[key][0])
-            stds.append(results[key][1])
-
-    if not labels:
-        print("No data for text content ablation plot.")
-        return
-
-    fig, ax = plt.subplots(figsize=(8, 6))
-    colors = ["#d62728", "#ff7f0e", "#7f7f7f", "#1f77b4"][:len(labels)]
-    bars = ax.bar(range(len(labels)), means, yerr=stds, color=colors,
-                  edgecolor="black", linewidth=0.8, capsize=5, zorder=3)
-    ax.set_xticks(range(len(labels)))
-    ax.set_xticklabels(labels, fontsize=11)
-    ax.set_ylabel("Final Eval Score")
-    ax.set_title("Text Content Ablation — Distract Cheetah Run")
-    ax.grid(axis="y", alpha=0.3, zorder=0)
-
-    for bar, val in zip(bars, means):
-        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 2,
-                f"{val:.0f}", ha="center", va="bottom", fontsize=10, fontweight="bold")
-
-    plt.tight_layout()
-    fig.savefig(output_dir / "text_content_ablation.pdf", bbox_inches="tight")
-    print(f"Saved: {output_dir / 'text_content_ablation.pdf'}")
-    plt.close(fig)
+    See ablations/eval_text_swap.py for text-swap evaluation results.
+    """
+    print("Text content ablation is now eval-time only (see eval_text_swap.py).")
 
 
 def plot_difficulty_sweep(results, output_dir):
@@ -257,11 +227,8 @@ def plot_training_curves(results_dirs, output_dir):
     """Plot training curves for all ablations on one figure."""
     ablations = [
         ("A5: CNN Baseline", "ablation_a5_cnn_baseline", "#d62728", "-"),
-        ("A1: Random Text", "ablation_a1_random_text", "#ff7f0e", "--"),
         ("A3: Gate Only", "ablation_a3_gate_only", "#9467bd", "--"),
         ("A2: FiLM Only", "ablation_a2_film_only", "#2ca02c", "--"),
-        ("B3: Nonsense Text", "ablation_b3_nonsense_text", "#8c564b", ":"),
-        ("B6: Adversarial Text", "ablation_b6_adversarial_text", "#e377c2", ":"),
         ("H3: Wider CNN", "ablation_h3_wider_cnn", "#bcbd22", "-."),
         ("A4: Full Multimodal (Ours)", "ablation_a4_full_multimodal", "#1f77b4", "-"),
     ]
@@ -291,6 +258,8 @@ def main():
     parser = argparse.ArgumentParser(description="Plot ablation study results")
     parser.add_argument("--base_logdir", type=str, required=True,
                         help="Base logdir containing experiment subdirectories")
+    parser.add_argument("--task", type=str, default="distract_cheetah_run",
+                        help="Task subdirectory inside each experiment folder")
     parser.add_argument("--output_dir", type=str, default="ablations/results",
                         help="Output directory for plots and tables")
     parser.add_argument("--last_n", type=int, default=5,
@@ -303,13 +272,10 @@ def main():
 
     # Expected experiment directories
     experiment_names = [
-        "ablation_a1_random_text",
         "ablation_a2_film_only",
         "ablation_a3_gate_only",
         "ablation_a4_full_multimodal",
         "ablation_a5_cnn_baseline",
-        "ablation_b3_nonsense_text",
-        "ablation_b6_adversarial_text",
         "ablation_f1_cnn_medium",
         "ablation_f1_cnn_hard",
         "ablation_f1_multimodal_medium",
@@ -321,7 +287,7 @@ def main():
     results = {}
     results_dirs = {}
     for name in experiment_names:
-        logdir = base_logdir / name
+        logdir = base_logdir / name / args.task
         mean, std = read_final_eval_score(logdir, args.last_n)
         results[name] = (mean, std)
         results_dirs[name] = logdir
@@ -344,11 +310,8 @@ def main():
         writer.writerow(["Ablation", "Experiment", "FiLM", "TextGate", "Text Type", "Mean Score", "Std Score"])
         rows = [
             ("A5", "ablation_a5_cnn_baseline", "No", "No", "None"),
-            ("A1", "ablation_a1_random_text", "Yes", "Yes", "Random"),
             ("A3", "ablation_a3_gate_only", "No", "Yes", "Real CLIP"),
             ("A2", "ablation_a2_film_only", "Yes", "No", "Real CLIP"),
-            ("B3", "ablation_b3_nonsense_text", "Yes", "Yes", "Nonsense"),
-            ("B6", "ablation_b6_adversarial_text", "Yes", "Yes", "Adversarial"),
             ("H3", "ablation_h3_wider_cnn", "No", "No", "None (wider)"),
             ("A4", "ablation_a4_full_multimodal", "Yes", "Yes", "Real CLIP"),
             ("F1-CNN-med", "ablation_f1_cnn_medium", "No", "No", "None"),
